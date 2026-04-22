@@ -1,0 +1,186 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Mini Crypto Signal</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;max-width:900px;margin:20px auto;padding:0 16px;}
+    header{display:flex;gap:12px;align-items:center;}
+    select,button{padding:6px;}
+    .row{display:flex;gap:12px;align-items:center;margin:10px 0;}
+    #summary{border:1px solid #ddd;padding:12px;border-radius:6px;margin-top:12px;}
+    canvas{max-width:100%;}
+  </style>
+</head>
+<body>
+  <header>
+    <h2>Mini Crypto Signal</h2>
+    <div>
+      Coin:
+      <select id="coin">
+        <option value="bitcoin">Bitcoin (BTC)</option>
+        <option value="ethereum">Ethereum (ETH)</option>
+        <option value="ripple">XRP</option>
+        <option value="chainlink">Chainlink (LINK)</option>
+      </select>
+      Profile:
+      <select id="profile">
+        <option value="conservative">Conservative</option>
+        <option value="balanced" selected>Balanced</option>
+        <option value="aggressive">Aggressive</option>
+      </select>
+      <button id="run">Run</button>
+    </div>
+  </header>
+
+  <div class="row">
+    <div id="summary">Nhấn Run để lấy dữ liệu và hiển thị tín hiệu.</div>
+  </div>
+
+  <canvas id="chart" height="260"></canvas>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+  // Helper indicators (pure JS)
+  function ema(series, period){
+    const k = 2/(period+1);
+    let emaArr = [];
+    let prev = series.slice(0,period).reduce((a,b)=>a+b,0)/period;
+    for(let i=0;i<series.length;i++){
+      if(i<period-1){ emaArr.push(null); continue; }
+      if(i===period-1){ prev = series.slice(0,period).reduce((a,b)=>a+b,0)/period; emaArr.push(prev); continue;}
+      prev = series[i]*k + prev*(1-k);
+      emaArr.push(prev);
+    }
+    return emaArr;
+  }
+  function rsi(series, period=14){
+    let gains=0, losses=0, arr=[];
+    for(let i=1;i<series.length;i++){
+      const diff = series[i]-series[i-1];
+      gains += Math.max(0,diff);
+      losses += Math.max(0,-diff);
+      if(i===period){
+        let avgG = gains/period, avgL = losses/period;
+        let rs = avgL===0?100:avgG/avgL;
+        arr[period]=100 - 100/(1+rs);
+      } else if(i>period){
+        const diff2 = series[i]-series[i-1];
+        const g = Math.max(0,diff2), l = Math.max(0,-diff2);
+        avgG = (avgG*(period-1)+g)/period;
+        avgL = (avgL*(period-1)+l)/period;
+        let rs = avgL===0?100:avgG/avgL;
+        arr[i]=100 - 100/(1+rs);
+      } else {
+        arr[i]=null;
+      }
+    }
+    // pad start
+    arr[0]=null;
+    return arr;
+  }
+
+  // Score rule:
+  // +20 if EMA20 > EMA50, +10 if RSI<30, -10 if RSI>70, adjust for volatility (atr-like)
+  function computeScore(latest, ema20, ema50, rsiVal, volRatio){
+    let score = 50;
+    if(ema20 > ema50) score += 20;
+    if(rsiVal !== null){
+      if(rsiVal < 30) score += 10;
+      if(rsiVal > 70) score -= 10;
+    }
+    if(volRatio > 0.05) score -= 8;
+    score = Math.max(0, Math.min(100, score));
+    return score;
+  }
+
+  async function fetchMarketChart(coin, days=60){
+    const url = `https://api.coingecko.com/api/v3/coins/${coin}/market_chart?vs_currency=usd&days=${days}`;
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('Fetch error');
+    return r.json();
+  }
+
+  function toOHLC(prices){
+    // prices: [ [ts, price], ... ] daily approx already if days<=90
+    return prices.map(p=>({t:new Date(p[0]), price:p[1]}));
+  }
+
+  document.getElementById('run').addEventListener('click', async ()=>{
+    const coin = document.getElementById('coin').value;
+    const profile = document.getElementById('profile').value;
+    const summaryEl = document.getElementById('summary');
+    summaryEl.innerText = 'Loading...';
+    try{
+      const data = await fetchMarketChart(coin, 90);
+      const pts = toOHLC(data.prices);
+      const closes = pts.map(p=>p.price);
+      const ema20 = ema(closes,20);
+      const ema50 = ema(closes,50);
+      const rsiArr = rsi(closes,14);
+      // volatility proxy: std dev last 14 returns / mean price
+      const returns = [];
+      for(let i=1;i<closes.length;i++) returns.push((closes[i]-closes[i-1])/closes[i-1]);
+      const lastReturns = returns.slice(-14);
+      const mean = lastReturns.reduce((a,b)=>a+b,0)/lastReturns.length;
+      const variance = lastReturns.reduce((a,b)=>a+(b-mean)*(b-mean),0)/lastReturns.length;
+      const vol = Math.sqrt(variance);
+      const volRatio = vol; // approximate
+      const lastPrice = closes[closes.length-1];
+      const s_ema20 = ema20[ema20.length-1];
+      const s_ema50 = ema50[ema50.length-1];
+      const s_rsi = rsiArr[rsiArr.length-1] || null;
+      const score = computeScore(lastPrice, s_ema20, s_ema50, s_rsi, volRatio);
+      let action='Hold';
+      if(score>=70) action='Strong Buy';
+      else if(score>=55) action='Buy';
+      else if(score>=45) action='Hold';
+      else if(score>=30) action='Sell';
+      else action='Strong Sell';
+
+      // allocation suggestion for $1000
+      const capital = 1000;
+      let alloc;
+      if(profile==='conservative') alloc = {crypto:0.6,eth:0.3,stable:0.1};
+      else if(profile==='balanced') alloc = {crypto:0.4,eth:0.3,alts:0.2,stable:0.1};
+      else alloc = {crypto:0.25,eth:0.25,alts:0.4,stable:0.1};
+      // simple invest decision: only invest into coin if action is Buy/Strong Buy/Hold for primary
+      let investIntoCoin = (action==='Buy' || action==='Strong Buy' || action==='Hold');
+      let investAmt = investIntoCoin ? (capital * (alloc.crypto || alloc.eth || 0.4)) : 0;
+      // show summary
+      summaryEl.innerHTML = `<strong>${coin.toUpperCase()}</strong> — Price: $${lastPrice.toFixed(2)}<br>
+        Signal: <strong>${action}</strong> (score ${score.toFixed(1)})<br>
+        RSI: ${s_rsi? s_rsi.toFixed(1):'n/a'}, EMA20: ${s_ema20? s_ema20.toFixed(2):'n/a'}, EMA50: ${s_ema50? s_ema50.toFixed(2):'n/a'}<br>
+        Suggested invest (from $1,000, ${profile}): $${investAmt.toFixed(2)}<br>
+        Note: tool chỉ đưa ra gợi ý phân tích, không đặt lệnh tự động.
+      `;
+
+      // draw chart with price and EMA
+      const ctx = document.getElementById('chart').getContext('2d');
+      if(window._chart) window._chart.destroy();
+      const labels = pts.map(p=>p.t.toISOString().slice(0,10));
+      window._chart = new Chart(ctx, {
+        type:'line',
+        data:{
+          labels: labels,
+          datasets:[
+            {label:'Close',data:closes,borderColor:'#007bff',fill:false,pointRadius:0},
+            {label:'EMA20',data:ema20,borderColor:'#28a745',fill:false,pointRadius:0},
+            {label:'EMA50',data:ema50,borderColor:'#dc3545',fill:false,pointRadius:0}
+          ]
+        },
+        options:{
+          interaction:{mode:'index',intersect:false},
+          plugins:{legend:{display:true}},
+          scales:{x:{display:true}, y:{display:true}}
+        }
+      });
+
+    } catch(e){
+      console.error(e);
+      summaryEl.innerText = 'Lỗi khi lấy dữ liệu. Vui lòng thử lại.';
+    }
+  });
+  </script>
+</body>
+</html>
