@@ -218,9 +218,18 @@
       bg.setAttribute('fill','transparent');
       svg.appendChild(bg);
 
-      // draw cells
+            // draw cells
       const gap = 4;
       let idx = 0;
+      // helper: generate pleasant random color
+      function randomPastel(){
+        // HSL with random hue, high lightness, low-medium saturation
+        const h = Math.floor(Math.random()*360);
+        const s = 40 + Math.floor(Math.random()*30); // 40-70%
+        const l = 55 + Math.floor(Math.random()*10); // 55-65%
+        return `hsl(${h} ${s}% ${l}%)`;
+      }
+
       for(let r=0;r<rows;r++){
         for(let c=0;c<cols;c++){
           const x = gap + c*(cellSize + gap);
@@ -230,25 +239,26 @@
           group.setAttribute('data-index', idx);
           group.setAttribute('transform', `translate(${x},${y})`);
 
-          // rect
+          // rect with random background
           const rect = document.createElementNS(svgNS,'rect');
           rect.setAttribute('x',0); rect.setAttribute('y',0);
           rect.setAttribute('width', cellSize);
           rect.setAttribute('height', cellSize);
           rect.setAttribute('rx',8);
-          rect.setAttribute('fill','#051827');
+          const bgColor = randomPastel();
+          rect.setAttribute('fill', bgColor);
           rect.setAttribute('stroke','#073747');
           rect.setAttribute('stroke-width',1);
           group.appendChild(rect);
 
-          // text (center)
+          // text (center) - ensure good contrast by darkening text on light bg
           const txt = document.createElementNS(svgNS,'text');
           txt.setAttribute('x', cellSize/2);
           txt.setAttribute('y', cellSize/2 + Math.round(fontSize/3));
           txt.setAttribute('font-size', fontSize);
           txt.setAttribute('text-anchor','middle');
           txt.setAttribute('dominant-baseline','middle');
-          txt.setAttribute('fill','#e6eef6');
+          txt.setAttribute('fill','#022'); // dark text for pastel bg
           txt.setAttribute('font-weight','700');
           txt.textContent = gridState.numbers[idx];
           group.appendChild(txt);
