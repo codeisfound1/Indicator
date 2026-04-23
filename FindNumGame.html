@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Grid Generator SVG - Tìm số tuần tự</title>
+  <style>
+    :root{
+      --cell-size: 60px;        /* kích thước ô (thay đổi) */
+      --cell-font: 25px;        /* font-size cho chữ nhỏ trong ô (thay đổi) */
+      --big-font: 65px;         /* font-size hiển thị số đang tìm (thay đổi) */
+      --gap: 4px;
+      --bg: #0f1724;
+      --panel: #0b1220;
+      --accent: #06b6d4;
+      --ok: #10b981;
+      --bad: #ef4444;
+      --text: #e6eef6;
+    }
+    html,body{height:100%;margin:0;font-family:Segoe UI, Roboto, Arial; background:linear-gradient(180deg,#071025 0%, #071a2b 100%); color:var(--text); display:flex; align-items:flex-start; justify-content:center; padding:28px;}
+    .container{width:100%; max-width:1100px;}
+    header{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px;}
+    h1{font-size:18px;margin:0;}
+    .controls{
+      display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+      background:rgba(255,255,255,0.02); padding:12px; border-radius:8px;
+    }
+    label{font-size:13px; color:#cfeff6}
+    select,input[type=number]{padding:6px 8px; background:transparent; color:var(--text); border:1px solid rgba(255,255,255,0.06); border-radius:6px}
+    button{background:var(--accent); color:#022; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:600}
+    button.secondary{background:#1f2937; color:var(--text)}
+    .top-row{display:flex; gap:18px; align-items:center; margin-bottom:12px; justify-content:space-between;}
+    .left-col{display:flex; gap:12px; align-items:center;}
+    .stats{display:flex; gap:12px; align-items:center}
+    .big-number{
+      background:linear-gradient(90deg,#052230,#08384a);
+      padding:12px 18px; border-radius:8px; display:flex; flex-direction:column; align-items:center; min-width:220px;
+    }
+    .big-number .label{font-size:13px; opacity:0.8}
+    .big-number .num{font-size:var(--big-font); font-weight:700; margin-top:6px; color:var(--accent)}
+    .timer{background:#081828; padding:8px 12px; border-radius:8px; min-width:140px; text-align:center}
+    .timer .t{font-size:20px; font-weight:700; color:#ffd166}
+    .grid-wrap{margin-top:16px; display:flex; gap:18px; align-items:flex-start;}
+    .svg-area{
+      background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      padding:12px; border-radius:8px;
+    }
+    .info{min-width:260px; background:#071824; padding:12px; border-radius:8px; display:flex; flex-direction:column; gap:8px}
+    .info b{color:var(--accent)}
+    .row-controls{display:flex; gap:8px; align-items:center; margin-top:8px}
+    .message{font-size:14px; color:#bcd}
+    svg {display:block}
+    .cell{cursor:pointer; user-select:none}
+    .cell rect{fill:#051827; stroke:#073747; stroke-width:1}
+    .cell text{fill:var(--text); font-weight:700}
+    .cell.correct rect{fill:linear-gradient(#062b24,#063b2f);}
+    .cell.found rect{fill:var(--ok); stroke:rgba(0,0,0,0.2)}
+    .cell.wrong rect{fill:var(--bad)}
+    .best{color:#9ef3e6}
+    .small{font-size:13px; color:#a9c9d0}
+    footer{margin-top:18px; font-size:13px; color:#9fbac2}
+    @media (max-width:900px){
+      .grid-wrap{flex-direction:column}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="top-row">
+      <div class="left-col">
+        <h1>Grid Generator - Tìm số tuần tự</h1>
+        <div class="controls">
+          <label for="level">Cấp độ</label>
+          <select id="level">
+            <option value="easy">Dễ (5×5)</option>
+            <option value="medium">Trung bình (7×7)</option>
+            <option value="hard">Khó (10×10)</option>
+          </select>
+          <label for="cellSize">Kích thước ô</label>
+          <input id="cellSize" type="number" min="30" value="60" style="width:80px">
+          <label for="fontSize">Font ô</label>
+          <input id="fontSize" type="number" min="10" value="25" style="width:70px">
+          <label for="bigFont">Font lớn</label>
+          <input id="bigFont" type="number" min="30" value="65" style="width:70px">
+          <label for="countdown">Countdown (s)</label>
+          <input id="countdown" type="number" min="10" value="120" style="width:90px">
+          <button id="startBtn">Bắt đầu</button>
+          <button id="resetBtn" class="secondary">Reset</button>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="big-number">
+          <div class="label">Số đang tìm</div>
+          <div id="targetNum" class="num">—</div>
+        </div>
+        <div class="timer">
+          <div class="small">Thời gian còn lại</div>
+          <div id="timer" class="t">02:00</div>
+        </div>
+        <div class="timer">
+          <div class="small">Thời gian hoàn thành</div>
+          <div id="finishTime" class="t">--:--</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-wrap">
+      <div class="svg-area" id="svgContainer"></div>
+      <div class="info">
+        <div class="message">Chọn các ô theo thứ tự từ <b>1</b> đến số cuối cùng. Nếu sai sẽ không được công nhận.</div>
+        <div class="row-controls">
+          <div class="small">Trạng thái:</div>
+          <div id="status" class="small">Chưa bắt đầu</div>
+        </div>
+        <div class="row-controls">
+          <div class="small">Hoàn thành:</div>
+          <div id="completed" class="small">0</div>
+        </div>
+        <div class="row-controls">
+          <div class="small">Best time (session):</div>
+          <div id="bestTime" class="best">—</div>
+        </div>
+        <div style="margin-top:8px" class="small">Ghi chú: Mã lưu best time trong sessionStorage (tab hiện tại).</div>
+      </div>
+    </div>
+
+    <footer>Ngày: April 23, 2026</footer>
+  </div>
+
+  <script>
+    /* Cấu hình mặc định (có thể điều chỉnh) */
+    const DEFAULTS = {
+      easy: {rows:5, cols:5, max:25},
+      medium: {rows:7, cols:7, max:49},
+      hard: {rows:10, cols:10, max:100},
+    };
+
+    /* DOM */
+    const levelEl = document.getElementById('level');
+    const startBtn = document.getElementById('startBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const svgContainer = document.getElementById('svgContainer');
+    const targetNumEl = document.getElementById('targetNum');
+    const timerEl = document.getElementById('timer');
+    const finishTimeEl = document.getElementById('finishTime');
+    const statusEl = document.getElementById('status');
+    const completedEl = document.getElementById('completed');
+    const bestTimeEl = document.getElementById('bestTime');
+
+    const cellSizeInput = document.getElementById('cellSize');
+    const fontSizeInput = document.getElementById('fontSize');
+    const bigFontInput = document.getElementById('bigFont');
+    const countdownInput = document.getElementById('countdown');
+
+    /* State */
+    let gridState = {rows:0, cols:0, total:0, numbers:[], order:[]};
+    let currentTarget = 1;
+    let countdown = 120;
+    let timerInterval = null;
+    let startTime = null;
+    let finished = false;
+    let foundCount = 0;
+
+    /* Helpers */
+    function formatTimeSec(s){
+      if (s < 0) s = 0;
+      const mm = String(Math.floor(s/60)).padStart(2,'0');
+      const ss = String(Math.floor(s%60)).padStart(2,'0');
+      return mm + ':' + ss;
+    }
+
+    function randShuffle(arr){
+      for(let i=arr.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [arr[i],arr[j]]=[arr[j],arr[i]];
+      }
+      return arr;
+    }
+
+    /* Build grid data */
+    function buildGrid(levelKey){
+      const cfg = DEFAULTS[levelKey];
+      const total = cfg.rows * cfg.cols;
+      const maxVal = cfg.max;
+      // generate numbers 1..maxVal, pick total distinct numbers
+      const pool = [];
+      for(let i=1;i<=maxVal;i++) pool.push(i);
+      randShuffle(pool);
+      const numbers = pool.slice(0, total);
+      randShuffle(numbers); // random mapping to cells
+      gridState = {rows:cfg.rows, cols:cfg.cols, total:total, numbers:numbers};
+      return gridState;
+    }
+
+    /* Render SVG grid */
+    function renderGrid(){
+      const cellSize = Number(cellSizeInput.value) || 60;
+      const fontSize = Number(fontSizeInput.value) || 25;
+      const rows = gridState.rows, cols = gridState.cols;
+      const w = cols * cellSize + (cols+1)*4;
+      const h = rows * cellSize + (rows+1)*4;
+      const svgNS = 'http://www.w3.org/2000/svg';
+
+      // clear
+      svgContainer.innerHTML = '';
+      const svg = document.createElementNS(svgNS,'svg');
+      svg.setAttribute('width', w);
+      svg.setAttribute('height', h);
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      svg.style.maxWidth = '100%';
+      svg.style.height = 'auto';
+
+      // background rect
+      const bg = document.createElementNS(svgNS,'rect');
+      bg.setAttribute('x',0); bg.setAttribute('y',0);
+      bg.setAttribute('width',w); bg.setAttribute('height',h);
+      bg.setAttribute('rx',8);
+      bg.setAttribute('fill','transparent');
+      svg.appendChild(bg);
+
+      // draw cells
+      const gap = 4;
+      let idx = 0;
+      for(let r=0;r<rows;r++){
+        for(let c=0;c<cols;c++){
+          const x = gap + c*(cellSize + gap);
+          const y = gap + r*(cellSize + gap);
+          const group = document.createElementNS(svgNS,'g');
+          group.classList.add('cell');
+          group.setAttribute('data-index', idx);
+          group.setAttribute('transform', `translate(${x},${y})`);
+
+          // rect
+          const rect = document.createElementNS(svgNS,'rect');
+          rect.setAttribute('x',0); rect.setAttribute('y',0);
+          rect.setAttribute('width', cellSize);
+          rect.setAttribute('height', cellSize);
+          rect.setAttribute('rx',8);
+          rect.setAttribute('fill','#051827');
+          rect.setAttribute('stroke','#073747');
+          rect.setAttribute('stroke-width',1);
+          group.appendChild(rect);
+
+          // text (center)
+          const txt = document.createElementNS(svgNS,'text');
+          txt.setAttribute('x', cellSize/2);
+          txt.setAttribute('y', cellSize/2 + Math.round(fontSize/3));
+          txt.setAttribute('font-size', fontSize);
+          txt.setAttribute('text-anchor','middle');
+          txt.setAttribute('dominant-baseline','middle');
+          txt.setAttribute('fill','#e6eef6');
+          txt.setAttribute('font-weight','700');
+          txt.textContent = gridState.numbers[idx];
+          group.appendChild(txt);
+
+          // attach click
+          group.addEventListener('click', onCellClick);
+          svg.appendChild(group);
+          idx++;
+        }
+      }
+
+      svgContainer.appendChild(svg);
+    }
+
+    /* Start / Reset / Timer */
+    function startGame(){
+      // build grid
+      const levelKey = levelEl.value;
+      buildGrid(levelKey);
+      renderGrid();
+      // reset state
+      currentTarget = 1;
+      foundCount = 0;
+      finished = false;
+      statusEl.textContent = 'Đang chơi';
+      completedEl.textContent = `${foundCount}/${gridState.total}`;
+      countdown = Number(countdownInput.value) || 120;
+      timerEl.textContent = formatTimeSec(countdown);
+      finishTimeEl.textContent = '--:--';
+      targetNumEl.textContent = String(currentTarget);
+      // clear any previous timer
+      if(timerInterval) clearInterval(timerInterval);
+      startTime = Date.now();
+      timerInterval = setInterval(tickTimer, 200);
+      // update best time display from session
+      updateBestDisplay();
+    }
+
+    function resetGame(){
+      if(timerInterval) clearInterval(timerInterval);
+      svgContainer.innerHTML = '';
+      statusEl.textContent = 'Chưa bắt đầu';
+      targetNumEl.textContent = '—';
+      timerEl.textContent = formatTimeSec(Number(countdownInput.value) || 120);
+      finishTimeEl.textContent = '--:--';
+      completedEl.textContent = '0';
+      foundCount = 0;
+      currentTarget = 1;
+      finished = false;
+    }
+
+    function tickTimer(){
+      const elapsed = Math.floor((Date.now() - startTime)/1000);
+      const remaining = (Number(countdownInput.value) || 120) - elapsed;
+      timerEl.textContent = formatTimeSec(remaining);
+      if(remaining <= 0){
+        clearInterval(timerInterval);
+        timerInterval = null;
+        statusEl.textContent = 'Hết giờ';
+        // reveal correct order highlight (optionally)
+        finish(false);
+      }
+    }
+
+    /* Click handler */
+    function onCellClick(e){
+      if(finished) return;
+      const g = e.currentTarget;
+      const idx = Number(g.getAttribute('data-index'));
+      const value = Number(gridState.numbers[idx]);
+      if(value === currentTarget){
+        // correct
+        foundCount++;
+        currentTarget++;
+        targetNumEl.textContent = currentTarget <= gridState.total ? String(currentTarget) : '—';
+        completedEl.textContent = `${foundCount}/${gridState.total}`;
+        // mark found visually
+        const rect = g.querySelector('rect');
+        rect.setAttribute('fill','#10b981');
+        rect.setAttribute('stroke','rgba(0,0,0,0.2)');
+        // optionally reduce opacity of text
+        const txt = g.querySelector('text');
+        txt.setAttribute('fill','#022');
+        // check complete
+        if(foundCount >= gridState.total){
+          finish(true);
+        }
+      } else {
+        // wrong selection - brief flash
+        statusEl.textContent = `Sai: chọn ${value}, cần ${currentTarget}`;
+        g.querySelector('rect').setAttribute('fill','#ef4444');
+        setTimeout(()=> {
+          // restore if not found
+          if(!finished){
+            g.querySelector('rect').setAttribute('fill','#051827');
+            statusEl.textContent = 'Đang chơi';
+          }
+        }, 400);
+      }
+    }
+
+    /* Finish game */
+    function finish(success){
+      finished = true;
+      if(timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      const elapsedMs = Date.now() - startTime;
+      const elapsedSec = Math.floor(elapsedMs/1000);
+      if(success){
+        statusEl.textContent = 'Hoàn thành';
+        finishTimeEl.textContent = formatTimeSec(elapsedSec);
+        // store best in sessionStorage
+        const key = 'grid_best_' + levelEl.value;
+        const prev = sessionStorage.getItem(key);
+        if(!prev || Number(prev) === 0 || elapsedSec < Number(prev)){
+          sessionStorage.setItem(key, String(elapsedSec));
+        }
+        updateBestDisplay();
+      } else {
+        // failed
+        finishTimeEl.textContent = '—';
+      }
+    }
+
+    function updateBestDisplay(){
+      const key = 'grid_best_' + levelEl.value;
+      const prev = sessionStorage.getItem(key);
+      bestTimeEl.textContent = prev ? formatTimeSec(Number(prev)) : '—';
+    }
+
+    /* Wire buttons */
+    startBtn.addEventListener('click', ()=> {
+      startGame();
+    });
+    resetBtn.addEventListener('click', ()=> {
+      resetGame();
+    });
+
+    levelEl.addEventListener('change', ()=> {
+      updateBestDisplay();
+    });
+
+    // initialize display
+    resetGame();
+    updateBestDisplay();
+
+    // allow pressing Enter to start
+    document.addEventListener('keydown',(e)=> {
+      if(e.key === 'Enter') startGame();
+    });
+
+  </script>
+</body>
+</html>
