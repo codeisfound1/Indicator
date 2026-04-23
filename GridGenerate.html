@@ -46,9 +46,39 @@
 
 <script>
 (function(){
+  const MIN_SECONDS = 120; // thay đổi nếu muốn
   const COLS = 10;
   const ROWS = 10;
 
+   // Countdown state
+  let secondsLeft = MIN_SECONDS;
+  const countdownEl = document.getElementById('countdown');
+  const genSvgBtn = document.getElementById('genSvgBtn');
+  const genPngBtn = document.getElementById('genPngBtn');
+
+  function updateCountdownUI() {
+    if (secondsLeft > 0) {
+      countdownEl.textContent = `Kích hoạt sau: ${secondsLeft}s`;
+      genSvgBtn.disabled = true;
+      genPngBtn.disabled = true;
+    } else {
+      countdownEl.textContent = `Đã kích hoạt`;
+      genSvgBtn.disabled = false;
+      genPngBtn.disabled = false;
+    }
+  }
+
+  // start countdown on load
+  updateCountdownUI();
+  const countdownInterval = setInterval(() => {
+    secondsLeft--;
+    if (secondsLeft <= 0) {
+      clearInterval(countdownInterval);
+      secondsLeft = 0;
+    }
+    updateCountdownUI();
+  }, 1000);
+  
   function makeRng(seed) {
     let s = seed >>> 0;
     return function() {
