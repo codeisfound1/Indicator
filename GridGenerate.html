@@ -6,10 +6,12 @@
 <title>Grid 10x10 SVG Generator</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; padding:20px; background:#f7f7f8; color:#111}
-  .controls{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+  .controls{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
   button{padding:8px 12px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer}
+  button[disabled]{opacity:0.5;cursor:not-allowed}
   input[type="text"], input[type="number"]{padding:8px;border-radius:6px;border:1px solid #ccc}
   #preview{border:1px solid #ddd;background:#fff; display:inline-block}
+  #countdown{font-weight:600;color:#c0392b;margin-left:8px}
 </style>
 </head>
 <body>
@@ -19,13 +21,14 @@
 <div class="controls">
   <button id="genSvgBtn">Tải SVG</button>
   <button id="genPngBtn">Tải PNG</button>
+  <span id="countdown">Kích hoạt sau: 120s</span>
   <label>
     Seed (tùy chọn):
     <input id="seedInput" type="text" placeholder="ví dụ: 1234" />
   </label>
   <label>
     Cell:
-    <input id="cellSize" type="number" value="32" min="8" style="width:72px"/>
+    <input id="cellSize" type="number" value="60" min="8" style="width:72px"/>
   </label>
   <label>
     Gap:
@@ -33,7 +36,7 @@
   </label>
   <label>
     Font size:
-    <input id="fontSize" type="number" value="14" min="6" style="width:72px"/>
+    <input id="fontSize" type="number" value="25" min="6" style="width:72px"/>
   </label>
 </div>
 
