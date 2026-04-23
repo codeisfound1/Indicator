@@ -3,15 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Grid Generator SVG - Tìm số tuần tự</title>
+  <title>Grid Generator - Tìm số tuần tự</title>
   <style>
     :root{
-      --cell-size: 60px;        /* kích thước ô (thay đổi) */
-      --cell-font: 25px;        /* font-size cho chữ nhỏ trong ô (thay đổi) */
-      --big-font: 65px;         /* font-size hiển thị số đang tìm (thay đổi) */
+      --cell-size: 60px;
+      --cell-font: 25px;
+      --big-font: 65px;
       --gap: 4px;
-      --bg: #0f1724;
-      --panel: #0b1220;
       --accent: #06b6d4;
       --ok: #10b981;
       --bad: #ef4444;
@@ -51,13 +49,6 @@
     .message{font-size:14px; color:#bcd}
     svg {display:block}
     .cell{cursor:pointer; user-select:none}
-    .cell rect{fill:#051827; stroke:#073747; stroke-width:1}
-    .cell text{fill:var(--text); font-weight:700}
-    .cell.correct rect{fill:linear-gradient(#062b24,#063b2f);}
-    .cell.found rect{fill:var(--ok); stroke:rgba(0,0,0,0.2)}
-    .cell.wrong rect{fill:var(--bad)}
-    .best{color:#9ef3e6}
-    .small{font-size:13px; color:#a9c9d0}
     footer{margin-top:18px; font-size:13px; color:#9fbac2}
     @media (max-width:900px){
       .grid-wrap{flex-direction:column}
@@ -128,14 +119,12 @@
   </div>
 
   <script>
-    /* Cấu hình mặc định (có thể điều chỉnh) */
     const DEFAULTS = {
       easy: {rows:5, cols:5, max:25},
       medium: {rows:7, cols:7, max:49},
       hard: {rows:10, cols:10, max:100},
     };
 
-    /* DOM */
     const levelEl = document.getElementById('level');
     const startBtn = document.getElementById('startBtn');
     const resetBtn = document.getElementById('resetBtn');
@@ -152,16 +141,13 @@
     const bigFontInput = document.getElementById('bigFont');
     const countdownInput = document.getElementById('countdown');
 
-    /* State */
-    let gridState = {rows:0, cols:0, total:0, numbers:[], order:[]};
+    let gridState = {rows:0, cols:0, total:0, numbers:[]};
     let currentTarget = 1;
-    let countdown = 120;
     let timerInterval = null;
     let startTime = null;
     let finished = false;
     let foundCount = 0;
 
-    /* Helpers */
     function formatTimeSec(s){
       if (s < 0) s = 0;
       const mm = String(Math.floor(s/60)).padStart(2,'0');
@@ -177,31 +163,54 @@
       return arr;
     }
 
-    /* Build grid data */
     function buildGrid(levelKey){
       const cfg = DEFAULTS[levelKey];
       const total = cfg.rows * cfg.cols;
       const maxVal = cfg.max;
-      // generate numbers 1..maxVal, pick total distinct numbers
       const pool = [];
       for(let i=1;i<=maxVal;i++) pool.push(i);
       randShuffle(pool);
       const numbers = pool.slice(0, total);
-      randShuffle(numbers); // random mapping to cells
+      randShuffle(numbers);
       gridState = {rows:cfg.rows, cols:cfg.cols, total:total, numbers:numbers};
       return gridState;
     }
 
-    /* Render SVG grid */
+    // Generate distinct pastel colors
+    function distinctPastels(n){
+      // Ensure n capped to 360 for spacing
+      const hues = [];
+      const step = 360 / Math.max(n,1);
+      for(let i=0;i<n;i++){
+        const base = Math.floor(i*step);
+        const jitter = Math.floor((Math.random()-0.5)*step*0.6);
+        hues.push((base + jitter + 360) % 360);
+      }
+      for(let i=hues.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [hues[i], hues[j]] = [hues[j], hues[i]];
+      }
+      return hues.map(h => {
+        const s = 40 + Math.floor(Math.random()*25); // 40-65%
+        const l = 55 + Math.floor(Math.random()*10); // 55-65%
+        return `hsl(${h} ${s}% ${l}%)`;
+      });
+    }
+
     function renderGrid(){
       const cellSize = Number(cellSizeInput.value) || 60;
       const fontSize = Number(fontSizeInput.value) || 25;
+      const bigFont = Number(bigFontInput.value) || 65;
+      document.documentElement.style.setProperty('--cell-size', cellSize + 'px');
+      document.documentElement.style.setProperty('--cell-font', fontSize + 'px');
+      document.documentElement.style.setProperty('--big-font', bigFont + 'px');
+
       const rows = gridState.rows, cols = gridState.cols;
-      const w = cols * cellSize + (cols+1)*4;
-      const h = rows * cellSize + (rows+1)*4;
+      const gap = 4;
+      const w = cols * cellSize + (cols+1)*gap;
+      const h = rows * cellSize + (rows+1)*gap;
       const svgNS = 'http://www.w3.org/2000/svg';
 
-      // clear
       svgContainer.innerHTML = '';
       const svg = document.createElementNS(svgNS,'svg');
       svg.setAttribute('width', w);
@@ -210,44 +219,18 @@
       svg.style.maxWidth = '100%';
       svg.style.height = 'auto';
 
-      // background rect
       const bg = document.createElementNS(svgNS,'rect');
       bg.setAttribute('x',0); bg.setAttribute('y',0);
       bg.setAttribute('width',w); bg.setAttribute('height',h);
-      bg.setAttribute('rx',8);
       bg.setAttribute('fill','transparent');
       svg.appendChild(bg);
 
-      // draw cells
-      const gap = 4;
-      let idx = 0;
-
-      // generate N distinct pastel colors (using H values spaced with jitter)
-      function distinctPastels(n){
-        const hues = [];
-        const step = 360 / n;
-        for(let i=0;i<n;i++){
-          const base = Math.floor(i*step);
-          const jitter = Math.floor((Math.random()-0.5)*step*0.6); // small jitter
-          hues.push((base + jitter + 360) % 360);
-        }
-        // shuffle hues so adjacent cells not similar
-        for(let i=hues.length-1;i>0;i--){
-          const j = Math.floor(Math.random()*(i+1));
-          [hues[i], hues[j]] = [hues[j], hues[i]];
-        }
-        return hues.map(h => {
-          const s = 40 + Math.floor(Math.random()*25); // 40-65%
-          const l = 55 + Math.floor(Math.random()*10); // 55-65%
-          return `hsl(${h} ${s}% ${l}%)`;
-        });
-      }
-
-      // choose text color (fixed) that must not equal any background
-      const textColor = '#022'; // fixed dark text
       const totalCells = rows * cols;
       const bgColors = distinctPastels(totalCells);
+      // fixed text color that must not equal any background string (HSL vs hex different)
+      const textColor = '#022'; // dark fixed color
 
+      let idx = 0;
       for(let r=0;r<rows;r++){
         for(let c=0;c<cols;c++){
           const x = gap + c*(cellSize + gap);
@@ -257,7 +240,6 @@
           group.setAttribute('data-index', idx);
           group.setAttribute('transform', `translate(${x},${y})`);
 
-          // rect with distinct background
           const rect = document.createElementNS(svgNS,'rect');
           rect.setAttribute('x',0); rect.setAttribute('y',0);
           rect.setAttribute('width', cellSize);
@@ -269,7 +251,6 @@
           rect.setAttribute('stroke-width',1);
           group.appendChild(rect);
 
-          // text (center) - use fixed textColor
           const txt = document.createElementNS(svgNS,'text');
           txt.setAttribute('x', cellSize/2);
           txt.setAttribute('y', cellSize/2 + Math.round(fontSize/3));
@@ -281,7 +262,6 @@
           txt.textContent = gridState.numbers[idx];
           group.appendChild(txt);
 
-          // attach click
           group.addEventListener('click', onCellClick);
           svg.appendChild(group);
           idx++;
@@ -291,27 +271,22 @@
       svgContainer.appendChild(svg);
     }
 
-    /* Start / Reset / Timer */
     function startGame(){
-      // build grid
       const levelKey = levelEl.value;
       buildGrid(levelKey);
       renderGrid();
-      // reset state
       currentTarget = 1;
       foundCount = 0;
       finished = false;
       statusEl.textContent = 'Đang chơi';
       completedEl.textContent = `${foundCount}/${gridState.total}`;
-      countdown = Number(countdownInput.value) || 120;
-      timerEl.textContent = formatTimeSec(countdown);
+      const cd = Number(countdownInput.value) || 120;
+      timerEl.textContent = formatTimeSec(cd);
       finishTimeEl.textContent = '--:--';
       targetNumEl.textContent = String(currentTarget);
-      // clear any previous timer
       if(timerInterval) clearInterval(timerInterval);
       startTime = Date.now();
       timerInterval = setInterval(tickTimer, 200);
-      // update best time display from session
       updateBestDisplay();
     }
 
@@ -336,49 +311,42 @@
         clearInterval(timerInterval);
         timerInterval = null;
         statusEl.textContent = 'Hết giờ';
-        // reveal correct order highlight (optionally)
         finish(false);
       }
     }
 
-    /* Click handler */
     function onCellClick(e){
       if(finished) return;
       const g = e.currentTarget;
       const idx = Number(g.getAttribute('data-index'));
       const value = Number(gridState.numbers[idx]);
       if(value === currentTarget){
-        // correct
         foundCount++;
         currentTarget++;
         targetNumEl.textContent = currentTarget <= gridState.total ? String(currentTarget) : '—';
         completedEl.textContent = `${foundCount}/${gridState.total}`;
-        // mark found visually
         const rect = g.querySelector('rect');
         rect.setAttribute('fill','#10b981');
         rect.setAttribute('stroke','rgba(0,0,0,0.2)');
-        // optionally reduce opacity of text
         const txt = g.querySelector('text');
         txt.setAttribute('fill','#022');
-        // check complete
         if(foundCount >= gridState.total){
           finish(true);
         }
       } else {
-        // wrong selection - brief flash
         statusEl.textContent = `Sai: chọn ${value}, cần ${currentTarget}`;
-        g.querySelector('rect').setAttribute('fill','#ef4444');
+        const rect = g.querySelector('rect');
+        const prev = rect.getAttribute('fill');
+        rect.setAttribute('fill','#ef4444');
         setTimeout(()=> {
-          // restore if not found
           if(!finished){
-            g.querySelector('rect').setAttribute('fill','#051827');
+            rect.setAttribute('fill', prev);
             statusEl.textContent = 'Đang chơi';
           }
         }, 400);
       }
     }
 
-    /* Finish game */
     function finish(success){
       finished = true;
       if(timerInterval) { clearInterval(timerInterval); timerInterval = null; }
@@ -387,7 +355,6 @@
       if(success){
         statusEl.textContent = 'Hoàn thành';
         finishTimeEl.textContent = formatTimeSec(elapsedSec);
-        // store best in sessionStorage
         const key = 'grid_best_' + levelEl.value;
         const prev = sessionStorage.getItem(key);
         if(!prev || Number(prev) === 0 || elapsedSec < Number(prev)){
@@ -395,7 +362,6 @@
         }
         updateBestDisplay();
       } else {
-        // failed
         finishTimeEl.textContent = '—';
       }
     }
@@ -406,27 +372,13 @@
       bestTimeEl.textContent = prev ? formatTimeSec(Number(prev)) : '—';
     }
 
-    /* Wire buttons */
-    startBtn.addEventListener('click', ()=> {
-      startGame();
-    });
-    resetBtn.addEventListener('click', ()=> {
-      resetGame();
-    });
+    startBtn.addEventListener('click', ()=> startGame());
+    resetBtn.addEventListener('click', ()=> resetGame());
+    levelEl.addEventListener('change', ()=> updateBestDisplay());
+    document.addEventListener('keydown',(e)=> { if(e.key === 'Enter') startGame(); });
 
-    levelEl.addEventListener('change', ()=> {
-      updateBestDisplay();
-    });
-
-    // initialize display
     resetGame();
     updateBestDisplay();
-
-    // allow pressing Enter to start
-    document.addEventListener('keydown',(e)=> {
-      if(e.key === 'Enter') startGame();
-    });
-
   </script>
 </body>
 </html>
