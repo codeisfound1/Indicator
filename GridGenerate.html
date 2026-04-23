@@ -19,8 +19,8 @@
 <h2>Grid 10×10 SVG Generator</h2>
 
 <div class="controls">
-  <button id="genSvgBtn">Tải SVG</button>
-  <button id="genPngBtn">Tải PNG</button>
+  <button id="genSvgBtn" disabled>Tải SVG</button>
+  <button id="genPngBtn" disabled>Tải PNG</button>
   <span id="countdown">Kích hoạt sau: 120s</span>
   <label>
     Seed (tùy chọn):
@@ -28,7 +28,7 @@
   </label>
   <label>
     Cell:
-    <input id="cellSize" type="number" value="60" min="8" style="width:72px"/>
+    <input id="cellSize" type="number" value="32" min="8" style="width:72px"/>
   </label>
   <label>
     Gap:
@@ -36,7 +36,7 @@
   </label>
   <label>
     Font size:
-    <input id="fontSize" type="number" value="25" min="6" style="width:72px"/>
+    <input id="fontSize" type="number" value="14" min="6" style="width:72px"/>
   </label>
 </div>
 
@@ -50,7 +50,7 @@
   const COLS = 10;
   const ROWS = 10;
 
-   // Countdown state
+  // Countdown state
   let secondsLeft = MIN_SECONDS;
   const countdownEl = document.getElementById('countdown');
   const genSvgBtn = document.getElementById('genSvgBtn');
@@ -78,7 +78,8 @@
     }
     updateCountdownUI();
   }, 1000);
-  
+
+  // RNG and helpers
   function makeRng(seed) {
     let s = seed >>> 0;
     return function() {
@@ -126,7 +127,6 @@
     const rng = seed != null ? makeRng(seed) : Math.random;
     shuffleWithRng(nums, rng);
 
-    // build svg without XML declaration to avoid parser issues
     const parts = [];
     parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}">`);
     parts.push(`<style>.cell-text{font-family:Arial, Helvetica, sans-serif; font-size:${FONT_SIZE}px; fill:#000; dominant-baseline:middle; text-anchor:middle;}</style>`);
@@ -181,14 +181,11 @@
       URL.revokeObjectURL(url);
       callback(null);
     };
-    // set crossOrigin in case; not needed for blobs but harmless
     img.crossOrigin = 'anonymous';
     img.src = url;
   }
 
   // DOM
-  const genSvgBtn = document.getElementById('genSvgBtn');
-  const genPngBtn = document.getElementById('genPngBtn');
   const seedInput = document.getElementById('seedInput');
   const preview = document.getElementById('preview');
   const cellSizeInput = document.getElementById('cellSize');
@@ -207,12 +204,9 @@
   function renderPreview() {
     const opts = getOptions();
     const svg = generateSVGString(opts);
-
-    // parse safely
     const parser = new DOMParser();
     const doc = parser.parseFromString(svg, 'image/svg+xml');
     const svgEl = doc.documentElement;
-    // clear and adopt
     preview.innerHTML = '';
     preview.appendChild(document.importNode(svgEl, true));
     preview.style.width = (opts.cell*COLS + (COLS-1)*opts.gap) + 'px';
@@ -222,12 +216,14 @@
   renderPreview();
 
   genSvgBtn.addEventListener('click', function(){
+    if (secondsLeft > 0) return;
     const opts = getOptions();
     const svg = generateSVGString(opts);
     download('grid10x10.svg', svg, 'image/svg+xml;charset=utf-8');
   });
 
   genPngBtn.addEventListener('click', function(){
+    if (secondsLeft > 0) return;
     const opts = getOptions();
     const svg = generateSVGString(opts);
     const w = COLS*opts.cell + (COLS-1)*opts.gap;
