@@ -8,7 +8,7 @@
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; padding:20px; background:#f7f7f8; color:#111}
   .controls{display:flex;gap:8px;align-items:center;margin-bottom:12px}
   button{padding:8px 12px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer}
-  input[type="text"]{padding:8px;border-radius:6px;border:1px solid #ccc}
+  input[type="text"], input[type="number"]{padding:8px;border-radius:6px;border:1px solid #ccc}
   #preview{border:1px solid #ddd;background:#fff; display:inline-block}
 </style>
 </head>
@@ -38,16 +38,14 @@
 </div>
 
 <div>
-  <div id="preview"></div>
+  <div id="preview" aria-hidden="false"></div>
 </div>
 
 <script>
 (function(){
-  // Defaults
   const COLS = 10;
   const ROWS = 10;
 
-  // PRNG with seed (Mulberry32)
   function makeRng(seed) {
     let s = seed >>> 0;
     return function() {
@@ -60,7 +58,6 @@
 
   function parseSeed(str) {
     if (!str) return null;
-    // simple hash string -> uint32
     let h = 2166136261 >>> 0;
     for (let i = 0; i < str.length; i++) {
       h ^= str.charCodeAt(i);
@@ -92,15 +89,12 @@
     const totalW = COLS * CELL + (COLS - 1) * GAP;
     const totalH = ROWS * CELL + (ROWS - 1) * GAP;
 
-    // numbers 1..100
     let nums = Array.from({length: COLS*ROWS}, (_, i) => i + 1);
+    const rng = seed != null ? makeRng(seed) : Math.random;
+    shuffleWithRng(nums, rng);
 
-    let rng = seed != null ? makeRng(seed) : Math.random;
-    if (seed != null) shuffleWithRng(nums, rng);
-    else shuffleWithRng(nums, Math.random);
-
+    // build svg without XML declaration to avoid parser issues
     const parts = [];
-    parts.push('<?xml version="1.0" encoding="UTF-8"?>');
     parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}">`);
     parts.push(`<style>.cell-text{font-family:Arial, Helvetica, sans-serif; font-size:${FONT_SIZE}px; fill:#000; dominant-baseline:middle; text-anchor:middle;}</style>`);
     parts.push(`<rect width="100%" height="100%" fill="#ffffff"/>`);
@@ -111,7 +105,7 @@
         const y = r * (CELL + GAP);
         const idx = r * COLS + c;
         const n = nums[idx];
-        const color = (seed != null) ? randColorWithRng(rng) : randColorWithRng(Math.random);
+        const color = randColorWithRng(rng);
         parts.push(`<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" fill="${color}" />`);
         parts.push(`<text class="cell-text" x="${x + CELL/2}" y="${y + CELL/2}">${n}</text>`);
       }
@@ -142,7 +136,6 @@
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      // white background
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0,0,canvas.width,canvas.height);
       ctx.drawImage(img, 0, 0);
@@ -155,10 +148,12 @@
       URL.revokeObjectURL(url);
       callback(null);
     };
+    // set crossOrigin in case; not needed for blobs but harmless
+    img.crossOrigin = 'anonymous';
     img.src = url;
   }
 
-  // DOM elements
+  // DOM
   const genSvgBtn = document.getElementById('genSvgBtn');
   const genPngBtn = document.getElementById('genPngBtn');
   const seedInput = document.getElementById('seedInput');
@@ -179,17 +174,18 @@
   function renderPreview() {
     const opts = getOptions();
     const svg = generateSVGString(opts);
-    preview.innerHTML = svg;
-    // inline SVG may not render styles from string in all browsers; replace with DOM
+
+    // parse safely
     const parser = new DOMParser();
     const doc = parser.parseFromString(svg, 'image/svg+xml');
+    const svgEl = doc.documentElement;
+    // clear and adopt
     preview.innerHTML = '';
-    preview.appendChild(document.adoptNode(doc.documentElement));
+    preview.appendChild(document.importNode(svgEl, true));
     preview.style.width = (opts.cell*COLS + (COLS-1)*opts.gap) + 'px';
     preview.style.height = (opts.cell*ROWS + (ROWS-1)*opts.gap) + 'px';
   }
 
-  // initial preview
   renderPreview();
 
   genSvgBtn.addEventListener('click', function(){
@@ -216,10 +212,11 @@
     });
   });
 
-  // update preview when inputs change
   [seedInput, cellSizeInput, gapSizeInput, fontSizeInput].forEach(el=>{
     el.addEventListener('input', () => renderPreview());
   });
-
 })();
 </script>
+
+</body>
+</html>
