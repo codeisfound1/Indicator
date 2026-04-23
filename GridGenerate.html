@@ -3,41 +3,58 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Grid 10x10 SVG Generator</title>
+<title>Grid Generator — 3 cấp độ</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; padding:20px; background:#f7f7f8; color:#111}
   .controls{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  .controls label{display:flex;gap:6px;align-items:center}
   button{padding:8px 12px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer}
   button[disabled]{opacity:0.5;cursor:not-allowed}
-  input[type="text"], input[type="number"]{padding:8px;border-radius:6px;border:1px solid #ccc}
-  #preview{border:1px solid #ddd;background:#fff; display:inline-block}
+  input[type="text"], input[type="number"], select{padding:8px;border-radius:6px;border:1px solid #ccc}
+  #preview{border:1px solid #ddd;background:#fff; display:inline-block;margin-top:12px}
   #countdown{font-weight:600;color:#c0392b;margin-left:8px}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 </style>
 </head>
 <body>
 
-<h2>Grid 10×10 SVG Generator</h2>
+<h2>Grid Generator — 3 cấp độ</h2>
 
 <div class="controls">
-  <button id="genSvgBtn" disabled>Tải SVG</button>
-  <button id="genPngBtn" disabled>Tải PNG</button>
-  <span id="countdown">Kích hoạt sau: 120s</span>
+  <label>
+    Cấp độ:
+    <select id="levelSelect">
+      <option value="easy">Dễ — 5×5 (1–25) — 60s</option>
+      <option value="medium">Trung bình — 7×7 (1–49) — 60s</option>
+      <option value="hard" selected>Khó — 10×10 (1–100) — 120s</option>
+    </select>
+  </label>
+
   <label>
     Seed (tùy chọn):
     <input id="seedInput" type="text" placeholder="ví dụ: 1234" />
   </label>
+
   <label>
     Cell:
-    <input id="cellSize" type="number" value="60" min="8" style="width:72px"/>
+    <input id="cellSize" type="number" value="65" min="8" style="width:72px"/>
   </label>
+
   <label>
     Gap:
     <input id="gapSize" type="number" value="1" min="0" style="width:60px"/>
   </label>
+
   <label>
     Font size:
     <input id="fontSize" type="number" value="25" min="6" style="width:72px"/>
   </label>
+</div>
+
+<div class="row controls">
+  <button id="genSvgBtn" disabled>Tải SVG</button>
+  <button id="genPngBtn" disabled>Tải PNG</button>
+  <span id="countdown">Kích hoạt sau: —</span>
 </div>
 
 <div>
@@ -46,40 +63,28 @@
 
 <script>
 (function(){
-  const MIN_SECONDS = 120; // thay đổi nếu muốn
-  const COLS = 10;
-  const ROWS = 10;
+  // level configs
+  const LEVELS = {
+    easy:   { cols:5, rows:5, minSec:60 },
+    medium: { cols:7, rows:7, minSec:60 },
+    hard:   { cols:10, rows:10, minSec:120 }
+  };
 
-  // Countdown state
-  let secondsLeft = MIN_SECONDS;
-  const countdownEl = document.getElementById('countdown');
+  // DOM
+  const levelSelect = document.getElementById('levelSelect');
+  const seedInput = document.getElementById('seedInput');
+  const cellSizeInput = document.getElementById('cellSize');
+  const gapSizeInput = document.getElementById('gapSize');
+  const fontSizeInput = document.getElementById('fontSize');
   const genSvgBtn = document.getElementById('genSvgBtn');
   const genPngBtn = document.getElementById('genPngBtn');
+  const preview = document.getElementById('preview');
+  const countdownEl = document.getElementById('countdown');
 
-  function updateCountdownUI() {
-    if (secondsLeft > 0) {
-      countdownEl.textContent = `Kích hoạt sau: ${secondsLeft}s`;
-      genSvgBtn.disabled = true;
-      genPngBtn.disabled = true;
-    } else {
-      countdownEl.textContent = `Đã kích hoạt`;
-      genSvgBtn.disabled = false;
-      genPngBtn.disabled = false;
-    }
-  }
+  let countdownInterval = null;
+  let secondsLeft = 0;
 
-  // start countdown on load
-  updateCountdownUI();
-  const countdownInterval = setInterval(() => {
-    secondsLeft--;
-    if (secondsLeft <= 0) {
-      clearInterval(countdownInterval);
-      secondsLeft = 0;
-    }
-    updateCountdownUI();
-  }, 1000);
-
-  // RNG and helpers
+  // PRNG and helpers
   function makeRng(seed) {
     let s = seed >>> 0;
     return function() {
@@ -115,7 +120,20 @@
     return `hsl(${h} ${s}% ${l}%)`;
   }
 
+  function getOptions() {
+    const levelKey = levelSelect.value;
+    const cfg = LEVELS[levelKey];
+    const seedStr = seedInput.value.trim();
+    const seed = seedStr ? parseSeed(seedStr) : null;
+    const cell = Math.max(8, parseInt(cellSizeInput.value) || 32);
+    const gap = Math.max(0, parseInt(gapSizeInput.value) || 1);
+    const font = Math.max(6, parseInt(fontSizeInput.value) || 14);
+    return { levelKey, cols: cfg.cols, rows: cfg.rows, minSec: cfg.minSec, seed, cell, gap, font };
+  }
+
   function generateSVGString(options) {
+    const COLS = options.cols;
+    const ROWS = options.rows;
     const CELL = options.cell;
     const GAP = options.gap;
     const FONT_SIZE = options.font;
@@ -138,7 +156,7 @@
         const y = r * (CELL + GAP);
         const idx = r * COLS + c;
         const n = nums[idx];
-        const color = randColorWithRng(rng);
+        const color = (seed != null) ? randColorWithRng(makeRng((seed+idx)>>>0)) : randColorWithRng(Math.random);
         parts.push(`<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" fill="${color}" />`);
         parts.push(`<text class="cell-text" x="${x + CELL/2}" y="${y + CELL/2}">${n}</text>`);
       }
@@ -185,22 +203,35 @@
     img.src = url;
   }
 
-  // DOM
-  const seedInput = document.getElementById('seedInput');
-  const preview = document.getElementById('preview');
-  const cellSizeInput = document.getElementById('cellSize');
-  const gapSizeInput = document.getElementById('gapSize');
-  const fontSizeInput = document.getElementById('fontSize');
-
-  function getOptions() {
-    const seedStr = seedInput.value.trim();
-    const seed = seedStr ? parseSeed(seedStr) : null;
-    const cell = Math.max(8, parseInt(cellSizeInput.value) || 32);
-    const gap = Math.max(0, parseInt(gapSizeInput.value) || 1);
-    const font = Math.max(6, parseInt(fontSizeInput.value) || 14);
-    return { seed, cell, gap, font };
+  // Countdown management per level
+  function startCountdownForLevel(minSeconds) {
+    // reset any existing
+    if (countdownInterval) clearInterval(countdownInterval);
+    secondsLeft = minSeconds;
+    updateCountdownUI();
+    countdownInterval = setInterval(()=>{
+      secondsLeft--;
+      if (secondsLeft <= 0) {
+        clearInterval(countdownInterval);
+        secondsLeft = 0;
+      }
+      updateCountdownUI();
+    }, 1000);
   }
 
+  function updateCountdownUI() {
+    if (secondsLeft > 0) {
+      countdownEl.textContent = `Kích hoạt sau: ${secondsLeft}s`;
+      genSvgBtn.disabled = true;
+      genPngBtn.disabled = true;
+    } else {
+      countdownEl.textContent = `Đã kích hoạt (cấp: ${levelSelect.options[levelSelect.selectedIndex].text})`;
+      genSvgBtn.disabled = false;
+      genPngBtn.disabled = false;
+    }
+  }
+
+  // Preview rendering
   function renderPreview() {
     const opts = getOptions();
     const svg = generateSVGString(opts);
@@ -209,31 +240,49 @@
     const svgEl = doc.documentElement;
     preview.innerHTML = '';
     preview.appendChild(document.importNode(svgEl, true));
-    preview.style.width = (opts.cell*COLS + (COLS-1)*opts.gap) + 'px';
-    preview.style.height = (opts.cell*ROWS + (ROWS-1)*opts.gap) + 'px';
+    preview.style.width = (opts.cols*opts.cell + (opts.cols-1)*opts.gap) + 'px';
+    preview.style.height = (opts.rows*opts.cell + (opts.rows-1)*opts.gap) + 'px';
   }
 
-  renderPreview();
+  // initial
+  (function init(){
+    const opts = getOptions();
+    startCountdownForLevel(opts.minSec);
+    renderPreview();
+  })();
+
+  // handlers
+  levelSelect.addEventListener('change', function(){
+    const opts = getOptions();
+    startCountdownForLevel(opts.minSec);
+    renderPreview();
+  });
+
+  [seedInput, cellSizeInput, gapSizeInput, fontSizeInput].forEach(el=>{
+    el.addEventListener('input', () => renderPreview());
+  });
 
   genSvgBtn.addEventListener('click', function(){
     if (secondsLeft > 0) return;
     const opts = getOptions();
     const svg = generateSVGString(opts);
-    download('grid10x10.svg', svg, 'image/svg+xml;charset=utf-8');
+    const filename = `grid-${opts.levelKey}-${opts.cols}x${opts.rows}.svg`;
+    download(filename, svg, 'image/svg+xml;charset=utf-8');
   });
 
   genPngBtn.addEventListener('click', function(){
     if (secondsLeft > 0) return;
     const opts = getOptions();
     const svg = generateSVGString(opts);
-    const w = COLS*opts.cell + (COLS-1)*opts.gap;
-    const h = ROWS*opts.cell + (ROWS-1)*opts.gap;
+    const w = opts.cols*opts.cell + (opts.cols-1)*opts.gap;
+    const h = opts.rows*opts.cell + (opts.rows-1)*opts.gap;
     svgToPng(svg, w, h, function(blob){
       if (!blob) { alert('Không thể chuyển SVG sang PNG trên trình duyệt này.'); return; }
       const url = URL.createObjectURL(blob);
+      const filename = `grid-${opts.levelKey}-${opts.cols}x${opts.rows}.png`;
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'grid10x10.png';
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -241,9 +290,6 @@
     });
   });
 
-  [seedInput, cellSizeInput, gapSizeInput, fontSizeInput].forEach(el=>{
-    el.addEventListener('input', () => renderPreview());
-  });
 })();
 </script>
 
