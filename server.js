@@ -13,7 +13,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-const UID = new ShortUniqueId({ length: 4 });
+const uid = new ShortUniqueId({ length: 4 });
 
 // Configurable defaults
 const DEFAULTS = {
@@ -133,7 +133,7 @@ function roomSummary(room) {
 
 // Create room
 function createRoom(hostSocket, opts) {
-  const id = UID();
+  const id = uid();
   const name = genName(Math.random() > 0.5 ? 2 : 3);
   const settings = {
     level: opts.level || 'easy',
