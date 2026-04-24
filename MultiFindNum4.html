@@ -3,113 +3,30 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Grid Generator Game</title>
+<title>Grid Generator Game - Per-player Target</title>
 <style>
   :root{
-    --cell-size:60px;        /* default cell size (can change via controls) */
-    --cell-font:25px;        /* default font size inside cells */
-    --target-font:65px;      /* font size for target number display */
+    --cell-size:60px;
+    --cell-font:25px;
+    --target-font:65px;
     --gap:6px;
   }
-  body{
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-    margin:12px;
-    background:#f6f7f9;
-    color:#111;
-  }
-  .controls{
-    display:flex;
-    flex-wrap:wrap;
-    gap:8px;
-    align-items:center;
-    margin-bottom:12px;
-  }
-  label{font-size:14px;}
-  select,input[type="number"],button{
-    padding:6px 8px;
-    font-size:14px;
-  }
-  .top-row{
-    display:flex;
-    gap:12px;
-    align-items:center;
-    flex-wrap:wrap;
-    margin-bottom:10px;
-  }
-  .status{
-    display:flex;
-    gap:12px;
-    align-items:center;
-    flex-wrap:wrap;
-  }
-  .target-box{
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    width:160px;
-    height:90px;
-    background:#fff;
-    border-radius:8px;
-    box-shadow:0 1px 4px rgba(0,0,0,0.08);
-    text-align:center;
-    flex-direction:column;
-  }
-  .target-number{
-    font-weight:700;
-    font-size:var(--target-font);
-    line-height:1;
-  }
-  .target-label{font-size:13px;color:#666}
-  .timer-box{
-    padding:8px 12px;
-    background:#fff;
-    border-radius:8px;
-    box-shadow:0 1px 4px rgba(0,0,0,0.06);
-  }
-  .grids-wrap{
-    display:flex;
-    gap:16px;
-    flex-wrap:wrap;
-    margin-top:12px;
-  }
-  .player-area{
-    background:#fff;
-    padding:10px;
-    border-radius:8px;
-    box-shadow:0 1px 6px rgba(0,0,0,0.06);
-    min-width:260px;
-  }
+  body{font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin:12px; background:#f6f7f9;}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;}
+  .top-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+  .grids-wrap{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;}
+  .player-area{background:#fff;padding:10px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,0.06);min-width:260px;}
   .player-title{font-weight:700;margin-bottom:8px;font-size:14px}
-  .grid{
-    display:grid;
-    gap:var(--gap);
-    touch-action: manipulation;
-    user-select:none;
-  }
-  .cell{
-    width:var(--cell-size);
-    height:var(--cell-size);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    border-radius:6px;
-    cursor:pointer;
-    color: #fff; /* overridden when necessary */
-    font-weight:700;
-    font-size:var(--cell-font);
-    box-shadow:0 1px 2px rgba(0,0,0,0.06) inset;
-  }
+  .player-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;}
+  .target-box{display:flex;align-items:center;justify-content:center;width:120px;height:64px;background:#fff;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,0.06);flex-direction:column}
+  .target-number{font-weight:700;font-size:var(--target-font);line-height:1}
+  .target-label{font-size:12px;color:#666}
+  .grid{display:grid;gap:var(--gap);touch-action:manipulation;user-select:none}
+  .cell{width:var(--cell-size);height:var(--cell-size);display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:#fff;font-weight:700;font-size:var(--cell-font)}
   .cell.disabled{opacity:0.45;pointer-events:none}
   .metrics{margin-top:8px;font-size:13px;color:#333}
-  .small{font-size:13px;color:#666}
-  .controls-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  @media (max-width:900px){
-    :root{--cell-size:48px; --cell-font:20px; --target-font:48px}
-  }
-  @media (max-width:420px){
-    :root{--cell-size:40px; --cell-font:18px; --target-font:40px; --gap:4px}
-    .target-box{width:120px;height:74px}
-  }
+  @media (max-width:900px){:root{--cell-size:48px;--cell-font:20px;--target-font:48px}}
+  @media (max-width:420px){:root{--cell-size:40px;--cell-font:18px;--target-font:40px;--gap:4px}.target-box{width:100px;height:56px}}
 </style>
 </head>
 <body>
@@ -152,19 +69,6 @@
     <button id="startBtn">Start</button>
     <button id="resetBtn">Reset</button>
   </div>
-
-  <div class="status" style="margin-left:auto">
-    <div class="target-box">
-      <div class="target-label">Số hiện tại cần tìm</div>
-      <div id="targetNumber" class="target-number">—</div>
-    </div>
-
-    <div class="timer-box">
-      <div style="font-size:13px;color:#666">Thời gian còn lại</div>
-      <div id="timer" style="font-weight:700;font-size:20px">10:00</div>
-      <div class="small">Hoàn thành: <span id="finishTime">—</span> | Best: <span id="bestTime">—</span></div>
-    </div>
-  </div>
 </div>
 
 <div class="grids-wrap" id="gridsWrap">
@@ -172,71 +76,18 @@
 </div>
 
 <script>
-/* ---------- Configuration & helpers ---------- */
-const DEFAULTS = {
-  levels: {
-    easy: {n:5, max:25},
-    medium: {n:7, max:49},
-    hard: {n:10, max:100}
-  },
-  colorsAvoidText: ['#ffffff','#000000'] // ensure contrast verses number color
-};
+/* --- Helpers (same as before) --- */
+function formatTimeSec(s){ if(s<0)s=0; const mm = Math.floor(s/60).toString().padStart(2,'0'); const ss = Math.floor(s%60).toString().padStart(2,'0'); return `${mm}:${ss}`; }
+function randInt(min,max){return Math.floor(Math.random()*(max-min+1))+min;}
+function randomColor(){ const h=Math.floor(Math.random()*360); const s=60+Math.floor(Math.random()*30); const l=45+Math.floor(Math.random()*10); return `hsl(${h} ${s}% ${l}%)`; }
+function getContrastTextColor(rgbOrHsl){ const tmp=document.createElement('div'); tmp.style.color=rgbOrHsl; document.body.appendChild(tmp); const cs=getComputedStyle(tmp).color; document.body.removeChild(tmp); const parts=cs.match(/\d+/g); if(!parts) return '#000'; const r=+parts[0], g=+parts[1], b=+parts[2]; const brightness=(r*299+g*587+b*114)/1000; return brightness>150? '#000':'#fff'; }
+function shuffle(arr){ for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];} return arr; }
 
-function formatTimeSec(s){
-  if(s < 0) s = 0;
-  const mm = Math.floor(s/60).toString().padStart(2,'0');
-  const ss = Math.floor(s%60).toString().padStart(2,'0');
-  return `${mm}:${ss}`;
-}
-
-function randInt(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
-
-/* generate a random color with decent saturation/lightness */
-function randomColor(){
-  // HSL approach for varied colors avoiding very light/very dark
-  const h = Math.floor(Math.random()*360);
-  const s = 60 + Math.floor(Math.random()*30); // 60-90
-  const l = 45 + Math.floor(Math.random()*10); //45-55
-  return `hsl(${h} ${s}% ${l}%)`;
-}
-
-/* compute text color (black/white) for contrast on given rgb/hsl by sampling */
-function getContrastTextColor(rgbOrHsl){
-  // simple luminance test: convert to canvas color and compute brightness
-  const tmp = document.createElement('div');
-  tmp.style.color = rgbOrHsl;
-  document.body.appendChild(tmp);
-  const cs = getComputedStyle(tmp).color;
-  document.body.removeChild(tmp);
-  // cs like "rgb(r, g, b)"
-  const parts = cs.match(/\d+/g);
-  if(!parts) return '#000';
-  const r = +parts[0], g=+parts[1], b=+parts[2];
-  const brightness = (r*299 + g*587 + b*114)/1000;
-  return brightness > 150 ? '#000' : '#fff';
-}
-
-/* Fisher-Yates shuffle */
-function shuffle(arr){
-  for(let i=arr.length-1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [arr[i],arr[j]]=[arr[j],arr[i]];
-  }
-  return arr;
-}
-
-/* generate array 1..max and shuffle */
-function genNumbers(max){
-  const a = [];
-  for(let i=1;i<=max;i++) a.push(i);
-  return shuffle(a);
-}
-
-/* ---------- Game State per player ---------- */
+/* --- PlayerGame class with per-player target display --- */
 class PlayerGame {
   constructor(playerIndex, settings, container){
     this.playerIndex = playerIndex;
-    this.settings = settings; // {n, max, cellSize, cellFont, targetFont, countdown}
+    this.settings = settings;
     this.container = container;
     this.gridEl = null;
     this.cells = [];
@@ -244,7 +95,6 @@ class PlayerGame {
     this.started = false;
     this.ended = false;
     this.remaining = settings.countdown;
-    this.timerInterval = null;
     this.startTimestamp = null;
     this.finishSeconds = null;
     this.bestKey = `best_time_player_${playerIndex}_${settings.max}`;
@@ -258,26 +108,37 @@ class PlayerGame {
     title.textContent = `Player ${this.playerIndex+1}`;
     this.container.appendChild(title);
 
-    const gridWrap = document.createElement('div');
-    gridWrap.style.display='flex';
-    gridWrap.style.flexDirection='column';
-    gridWrap.style.alignItems='center';
-    this.container.appendChild(gridWrap);
+    // header with per-player target and timer
+    const header = document.createElement('div');
+    header.className = 'player-header';
+    const targetBox = document.createElement('div');
+    targetBox.className = 'target-box';
+    targetBox.innerHTML = `<div class="target-label">Cần tìm</div><div class="target-number" id="targetP${this.playerIndex}">1</div>`;
+    header.appendChild(targetBox);
+
+    const timerBox = document.createElement('div');
+    timerBox.style.textAlign='right';
+    timerBox.innerHTML = `<div style="font-size:12px;color:#666">Còn</div><div id="timerP${this.playerIndex}" style="font-weight:700">${formatTimeSec(this.settings.countdown)}</div><div style="font-size:12px;color:#666">Best: <span id="bestP${this.playerIndex}">—</span></div>`;
+    header.appendChild(timerBox);
+
+    this.container.appendChild(header);
 
     const gridEl = document.createElement('div');
     gridEl.className = 'grid';
     this.gridEl = gridEl;
-    gridWrap.appendChild(gridEl);
+    this.container.appendChild(gridEl);
 
     const meta = document.createElement('div');
     meta.className = 'metrics';
     meta.innerHTML = `Đã tìm: <span class="foundCount">0</span> / ${this.settings.max}`;
-    gridWrap.appendChild(meta);
-
+    this.container.appendChild(meta);
     this.foundEl = meta.querySelector('.foundCount');
 
     this.setupGrid();
     this.applySizing();
+    this.updateTargetDisplay();
+    this.updateTimerDisplay();
+    const best = this.getBestTime(); if(best) this.container.querySelector('#bestP'+this.playerIndex).textContent = formatTimeSec(best);
   }
 
   setupGrid(){
@@ -286,27 +147,18 @@ class PlayerGame {
     this.gridEl.style.gridTemplateRows = `repeat(${n}, ${this.settings.cellSize}px)`;
     this.gridEl.innerHTML = '';
     this.cells = [];
-
-    const numbers = genNumbers(this.settings.max).slice(0, n*n); // for big n may exceed max; but requirement: numbers 1..max. We will repeat numbers only up to max i.e. if n*n > max, include all 1..max then continue increasing? User asked ranges; assume n*n == max for pre-set levels. For custom n, set max = n*n.
-    // If settings.max differs from n*n, adjust: if settings.max < n*n, fill with numbers 1..settings.max without duplicates then fill remaining with random numbers > settings.max (but avoid duplicates ideally).
-    // Simpler: For preset levels we set max accordingly. For custom we ensure settings.max = n*n in code that instantiates PlayerGame.
-    // We'll proceed with numbers array length n*n.
-    // Use numbers actually 1..n*n
     let arr = [];
     for(let i=1;i<=n*n;i++) arr.push(i);
     arr = shuffle(arr);
-
     for(let i=0;i<n*n;i++){
       const val = arr[i];
       const cell = document.createElement('button');
       cell.className='cell';
       cell.setAttribute('data-value', val);
       cell.textContent = val;
-      // random background different per cell
       const bg = randomColor();
       cell.style.background = bg;
-      const textColor = getContrastTextColor(bg);
-      cell.style.color = textColor;
+      cell.style.color = getContrastTextColor(bg);
       cell.style.fontSize = `${this.settings.cellFont}px`;
       cell.addEventListener('click', ()=> this.onCellClick(cell, val));
       this.gridEl.appendChild(cell);
@@ -315,7 +167,6 @@ class PlayerGame {
   }
 
   applySizing(){
-    // apply CSS variables per player if needed
     this.gridEl.querySelectorAll('.cell').forEach(c=>{
       c.style.width = this.settings.cellSize + 'px';
       c.style.height = this.settings.cellSize + 'px';
@@ -336,32 +187,37 @@ class PlayerGame {
         clearInterval(this.updateInterval);
         this.end(false);
       }
+      this.updateTimerDisplay();
       globalUpdateCallback();
     }, 300);
   }
 
   onCellClick(cell, val){
     if(this.ended) return;
-    // start timer at first click if not started
-    if(!this.started) {
+    if(!this.started){
       this.startTimer(()=>updateGlobalUI());
     }
-    // must select sequentially from 1 to max
     if(val === this.currentTarget){
-      // mark found
       cell.classList.add('disabled');
-      cell.style.outline = '3px solid rgba(0,0,0,0.08)';
       this.currentTarget++;
       this.foundEl.textContent = (this.currentTarget-1);
-      // update global target if solo or first player? handled externally
-      updateGlobalTargetAcrossPlayers();
+      this.updateTargetDisplay();
       if(this.currentTarget > this.settings.max){
         this.end(true);
       }
     } else {
-      // wrong pick: tiny feedback
       cell.animate([{transform:'scale(1)'},{transform:'scale(0.95)'},{transform:'scale(1)'}],{duration:150});
     }
+  }
+
+  updateTargetDisplay(){
+    const el = this.container.querySelector('#targetP'+this.playerIndex);
+    el.textContent = this.currentTarget <= this.settings.max ? this.currentTarget : '—';
+  }
+
+  updateTimerDisplay(){
+    const el = this.container.querySelector('#timerP'+this.playerIndex);
+    el.textContent = formatTimeSec(this.started ? this.remaining : this.settings.countdown);
   }
 
   end(success){
@@ -370,28 +226,18 @@ class PlayerGame {
     if(success){
       const took = Math.floor((Date.now()-this.startTimestamp)/1000);
       this.finishSeconds = took;
-      this.container.querySelector('#finish' + this.playerIndex); // no-op
-      // save best time in sessionStorage
       const prev = sessionStorage.getItem(this.bestKey);
-      if(!prev || took < Number(prev)){
-        sessionStorage.setItem(this.bestKey, String(took));
-      }
+      if(!prev || took < Number(prev)) sessionStorage.setItem(this.bestKey, String(took));
+      this.container.querySelector('#bestP'+this.playerIndex).textContent = formatTimeSec(this.getBestTime());
     } else {
-      // mark remaining cells disabled
       this.cells.forEach(c=>c.classList.add('disabled'));
     }
   }
 
-  getBestTime(){
-    const v = sessionStorage.getItem(this.bestKey);
-    return v ? Number(v) : null;
-  }
+  getBestTime(){ const v = sessionStorage.getItem(this.bestKey); return v?Number(v):null; }
 }
 
-/* ---------- Global orchestration ---------- */
-let playersGames = [];
-let settingsGlobal = null;
-
+/* --- Orchestration (adjusted for per-player displays) --- */
 const gridsWrap = document.getElementById('gridsWrap');
 const startBtn = document.getElementById('startBtn');
 const resetBtn = document.getElementById('resetBtn');
@@ -404,31 +250,19 @@ const targetFontInput = document.getElementById('targetFont');
 const countdownInput = document.getElementById('countdown');
 const playersInput = document.getElementById('players');
 
-const targetNumberEl = document.getElementById('targetNumber');
-const timerEl = document.getElementById('timer');
-const finishTimeEl = document.getElementById('finishTime');
-const bestTimeEl = document.getElementById('bestTime');
+levelSel.addEventListener('change', ()=>{ if(levelSel.value==='custom') customNlabel.style.display='inline-block'; else customNlabel.style.display='none'; });
+startBtn.addEventListener('click', ()=> startGame());
+resetBtn.addEventListener('click', ()=> resetAll());
 
-levelSel.addEventListener('change', ()=>{
-  if(levelSel.value === 'custom'){
-    customNlabel.style.display = 'inline-block';
-  } else customNlabel.style.display = 'none';
-});
-
-startBtn.addEventListener('click', ()=>{
-  startGame();
-});
-
-resetBtn.addEventListener('click', ()=>{
-  resetAll();
-});
+let playersGames = [];
+let settingsGlobal = null;
 
 function buildPlayerAreas(count){
-  gridsWrap.innerHTML = '';
-  const arr = [];
+  gridsWrap.innerHTML='';
+  const arr=[];
   for(let i=0;i<count;i++){
-    const wrapper = document.createElement('div');
-    wrapper.className = 'player-area';
+    const wrapper=document.createElement('div');
+    wrapper.className='player-area';
     wrapper.style.flex='1 1 300px';
     gridsWrap.appendChild(wrapper);
     arr.push(wrapper);
@@ -437,147 +271,37 @@ function buildPlayerAreas(count){
 }
 
 function startGame(){
-  // prepare settings
   const level = levelSel.value;
-  let n, max;
-  if(level === 'custom'){
-    n = Math.max(10, Math.floor(Number(customN.value) || 10));
-    max = n*n;
-  } else {
-    const cfg = DEFAULTS.levels[level];
-    n = cfg.n; max = cfg.max;
-  }
-  const cellSize = Math.max(24, Number(cellSizeInput.value) || 60);
-  const cellFont = Math.max(10, Number(cellFontInput.value) || 25);
-  const targetFont = Math.max(18, Number(targetFontInput.value) || 65);
-  const countdown = Math.max(10, Math.floor(Number(countdownInput.value) || 600));
-  const playerCount = Math.min(4, Math.max(1, Math.floor(Number(playersInput.value) || 1)));
+  let n;
+  if(level==='custom') n = Math.max(10, Math.floor(Number(customN.value)||10));
+  else if(level==='easy') n=5;
+  else if(level==='medium') n=7;
+  else n=10;
+  const cellSize = Math.max(24, Number(cellSizeInput.value)||60);
+  const cellFont = Math.max(10, Number(cellFontInput.value)||25);
+  const targetFont = Math.max(18, Number(targetFontInput.value)||65);
+  const countdown = Math.max(10, Math.floor(Number(countdownInput.value)||600));
+  const playerCount = Math.min(4, Math.max(1, Math.floor(Number(playersInput.value)||1)));
+  settingsGlobal = {n, max: n*n, cellSize, cellFont, targetFont, countdown, playerCount};
+  document.documentElement.style.setProperty('--cell-size', cellSize+'px');
+  document.documentElement.style.setProperty('--cell-font', cellFont+'px');
+  document.documentElement.style.setProperty('--target-font', targetFont+'px');
 
-  settingsGlobal = { n, max, cellSize, cellFont, targetFont, countdown, playerCount };
-
-  // apply CSS var sizes
-  document.documentElement.style.setProperty('--cell-size', cellSize + 'px');
-  document.documentElement.style.setProperty('--cell-font', cellFont + 'px');
-  document.documentElement.style.setProperty('--target-font', targetFont + 'px');
-
-  // create player areas
   const areas = buildPlayerAreas(playerCount);
   playersGames = [];
   for(let i=0;i<playerCount;i++){
-    // for custom, ensure each player's max = n*n
     const pSettings = {n, max: n*n, cellSize, cellFont, targetFont, countdown};
     const pg = new PlayerGame(i, pSettings, areas[i]);
     playersGames.push(pg);
   }
-
-  // initial global target = 1
-  updateGlobalTargetAcrossPlayers(true);
-
-  // reset timer displays
-  updateGlobalUI();
-
-  // automatically focus first player grid for accessibility
-  setTimeout(()=> {
-    const firstCell = areas[0].querySelector('.cell');
-    if(firstCell) firstCell.focus();
-  }, 200);
 }
 
-function resetAll(){
-  playersGames.forEach(pg=>{
-    pg.end(false);
-  });
-  playersGames = [];
-  gridsWrap.innerHTML = '';
-  targetNumberEl.textContent = '—';
-  timerEl.textContent = formatTimeSec(0);
-  finishTimeEl.textContent = '—';
-  bestTimeEl.textContent = '—';
-}
+function resetAll(){ playersGames.forEach(pg=>pg.end(false)); playersGames=[]; gridsWrap.innerHTML=''; }
 
-/* Update the global target number shown: for multiplayer we show each player's next? Requirement: "Hiển thị số đang cần tìm ... người dùng phải tìm và chọn từng ô grid tuần tự từ 1 đến số cuối cùng" — assume single shared target sequence per-player, so UI shows smallest next among players (or for 1 player just that). We'll show for focused player if 1 player, else show list— but to keep concise: show the minimum next target among players. */
-function updateGlobalTargetAcrossPlayers(initial=false){
-  if(playersGames.length === 0){
-    targetNumberEl.textContent = '—';
-    return;
-  }
-  // for single player show that player's current target; for multiplayer show player1..N targets concatenated
-  if(playersGames.length === 1){
-    const t = playersGames[0].currentTarget;
-    targetNumberEl.textContent = t <= playersGames[0].settings.max ? t : '—';
-  } else {
-    // show list like "P1: x  P2: y"
-    const parts = playersGames.map((pg, idx)=> {
-      const t = pg.currentTarget <= pg.settings.max ? pg.currentTarget : '—';
-      return `P${idx+1}:${t}`;
-    });
-    targetNumberEl.textContent = parts.join(' ');
-  }
-  if(initial){
-    // set timer display initial
-    timerEl.textContent = formatTimeSec(settingsGlobal.countdown);
-    finishTimeEl.textContent = '—';
-    const best = playersGames[0].getBestTime();
-    bestTimeEl.textContent = best ? formatTimeSec(best) : '—';
-  }
-}
+function updateGlobalUI(){ /* noop when per-player displays handle their own timers */ }
 
-/* update timer & finish/best times shown (for single player show player's values, for multiplayer show aggregate or first player) */
-function updateGlobalUI(){
-  if(playersGames.length === 0){
-    timerEl.textContent = formatTimeSec(0);
-    return;
-  }
-  if(playersGames.length === 1){
-    const pg = playersGames[0];
-    const remaining = pg.started ? pg.remaining : pg.settings.countdown;
-    timerEl.textContent = formatTimeSec(remaining);
-    if(pg.finishSeconds != null){
-      finishTimeEl.textContent = formatTimeSec(pg.finishSeconds);
-    } else finishTimeEl.textContent = '—';
-    const best = pg.getBestTime();
-    bestTimeEl.textContent = best ? formatTimeSec(best) : '—';
-  } else {
-    // show minimum remaining across players and show best time of all players aggregated
-    let minRemain = Infinity;
-    let anyFinished = false;
-    let bestAcross = null;
-    playersGames.forEach(pg=>{
-      if(pg.started) minRemain = Math.min(minRemain, pg.remaining);
-      else minRemain = Math.min(minRemain, pg.settings.countdown);
-      if(pg.finishSeconds != null){
-        anyFinished = true;
-      }
-      const b = pg.getBestTime();
-      if(b != null) bestAcross = bestAcross == null ? b : Math.min(bestAcross, b);
-    });
-    timerEl.textContent = formatTimeSec(isFinite(minRemain)?minRemain:0);
-    if(anyFinished){
-      // show aggregated finished? just show first finished player's time
-      const firstFinished = playersGames.find(p=>p.finishSeconds!=null);
-      finishTimeEl.textContent = firstFinished ? formatTimeSec(firstFinished.finishSeconds) : '—';
-    } else finishTimeEl.textContent = '—';
-    bestTimeEl.textContent = bestAcross ? formatTimeSec(bestAcross) : '—';
-  }
-}
-
-/* ensure responsive adjustments for very small screens: scale fonts/cell sizes automatically */
-function adaptForViewport(){
-  // If screen width < certain threshold, reduce cell size unless user set explicitly
-  const w = window.innerWidth;
-  // We let user's chosen cellSize override but adapt CSS variables to ensure fit for multiple player columns
-  // For simplicity, scale down when width small
-  let baseSize = Number(cellSizeInput.value) || 60;
-  if(w < 420) baseSize = Math.min(baseSize, 40);
-  else if(w < 900) baseSize = Math.min(baseSize, 48);
-  document.documentElement.style.setProperty('--cell-size', baseSize + 'px');
-}
-
-window.addEventListener('resize', adaptForViewport);
-
-/* Initialize small demo/auto-start */
-startGame(); // auto-start with defaults on load
-
+/* auto-start */
+startGame();
 </script>
 </body>
 </html>
