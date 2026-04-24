@@ -20,54 +20,94 @@ const chatBox = document.getElementById('chatBox');
 const chatInput = document.getElementById('chatInput');
 const sendChat = document.getElementById('sendChat');
 
-let localPlayerAreas = []; // store objects for each local player view
-let sessionBestTimes = {}; // socket-session local bests keyed by areaId
+let localPlayerAreas = [];
+let sessionBestTimes = {};
+let roomConfig = null;
+let amCreator = false;
 
 levelSel.addEventListener('change', () => {
   customNlabel.style.display = levelSel.value === 'custom' ? 'inline-block' : 'none';
 });
 
+// Join / Leave
 joinBtn.addEventListener('click', () => {
   const roomId = roomIdInput.value || 'room1';
   const name = nameInput.value || 'Player';
-  socket.emit('join-room', {roomId, name});
-  statusSpan.textContent = `Connected to ${roomId} as ${name}`;
-  joinBtn.disabled = true;
-  leaveBtn.disabled = false;
+  // build config payload from current UI (creator will set this if creating)
+  const payload = {
+    roomId, name,
+    level: levelSel.value,
+    customN: customN.value,
+    countdown: countdownInput.value,
+    cellSize: cellSizeInput.value,
+    fontCell: fontCellInput.value,
+    fontTarget: fontTargetInput.value
+  };
+  socket.emit('join-room', payload);
 });
 
 leaveBtn.addEventListener('click', () => {
-  socket.emit('leave-room', {roomId: roomIdInput.value || 'room1'});
+  socket.emit('leave-room', { roomId: roomIdInput.value || 'room1' });
   statusSpan.textContent = 'Not connected';
   joinBtn.disabled = false;
   leaveBtn.disabled = true;
+  // re-enable controls
+  enableLocalControls(true);
 });
 
 sendChat.addEventListener('click', () => {
   const msg = chatInput.value.trim();
   if (!msg) return;
-  socket.emit('chat', {roomId: roomIdInput.value || 'room1', msg});
+  socket.emit('chat', { roomId: roomIdInput.value || 'room1', msg });
   chatInput.value = '';
+});
+
+socket.on('room-full', ({roomId}) => {
+  const d = document.createElement('div'); d.textContent = `Room ${roomId} is full (max 4).`; chatBox.appendChild(d); chatBox.scrollTop = chatBox.scrollHeight;
 });
 
 socket.on('chat', ({from, msg}) => {
   const d = document.createElement('div'); d.textContent = `${from}: ${msg}`; chatBox.appendChild(d); chatBox.scrollTop = chatBox.scrollHeight;
 });
 
-socket.on('room-update', ({players}) => {
-  // show players in status
-  statusSpan.textContent = `Room ${roomIdInput.value} — players: ${Object.values(players).join(', ')}`;
+socket.on('room-config', (cfg) => {
+  // server-sent config; apply to UI and lock controls for non-creator
+  roomConfig = cfg || null;
+  applyRoomConfigToUI(roomConfig);
 });
 
-socket.on('best-times', ({bestTimes, players}) => {
-  // not required to show more than update local session storage
-  // optionally display in chatBox
+socket.on('room-update', ({players, best}) => {
+  const names = players ? Object.values(players) : [];
+  statusSpan.textContent = `Room ${roomIdInput.value} — players: ${names.join(', ')}`;
+  joinBtn.disabled = true;
+  leaveBtn.disabled = false;
+  enableLocalControls(false);
+  // show current best in chat if any
+  if (best) {
+    const d = document.createElement('div');
+    d.textContent = `Current best: ${best.name} — ${msToStr(best.ms)}`;
+    chatBox.appendChild(d);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+});
+
+socket.on('new-best', (best) => {
   const d = document.createElement('div');
-  d.textContent = `Best times updated.`;
+  d.textContent = `New best: ${best.name} — ${msToStr(best.ms)}`;
   chatBox.appendChild(d);
+  chatBox.scrollTop = chatBox.scrollHeight;
 });
 
-// UTILS
+socket.on('best-times', ({best}) => {
+  if (best) {
+    const d = document.createElement('div');
+    d.textContent = `Best time: ${best.name} — ${msToStr(best.ms)}`;
+    chatBox.appendChild(d);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+});
+
+// UTILS (same as before)
 function randInt(min, max){ return Math.floor(Math.random()*(max-min+1))+min; }
 function shuffle(arr){ for(let i=arr.length-1;i>0;i--){const j=randInt(0,i);[arr[i],arr[j]]=[arr[j],arr[i]];} return arr; }
 function distinctColors(n){
@@ -81,8 +121,15 @@ function distinctColors(n){
   }
   return shuffle(colors);
 }
+function contrastColor(hsl){
+  const m = hsl.match(/hsl\(\s*\d+\s+\d+% (\d+)%\)/);
+  if(m){ const l = parseInt(m[1],10); return l>55 ? '#111' : '#fff'; }
+  return '#000';
+}
+function formatTime(ms){ const s = Math.floor(ms/1000); const mm = Math.floor(s/60).toString().padStart(2,'0'); const ss = (s%60).toString().padStart(2,'0'); return `${mm}:${ss}`; }
+function msToStr(ms){ return (ms/1000).toFixed(3)+'s'; }
 
-// Create player-area DOM
+// UI creation
 function createPlayerArea(idx){
   const area = document.createElement('div');
   area.className = 'player-area';
@@ -111,7 +158,6 @@ function createPlayerArea(idx){
   return area;
 }
 
-// Build several player areas based on playersCount and layout rules
 function setupPlayersUI(count){
   playersContainer.innerHTML = '';
   localPlayerAreas = [];
@@ -139,61 +185,53 @@ function setupPlayersUI(count){
   applyLayout(count);
 }
 
-// layout: if 4 players enforce 2x2
 function applyLayout(count){
   if(count===4){
-    // make each area width 50%
     localPlayerAreas.forEach(a=> a.el.style.flex = '1 1 50%');
     playersContainer.style.flexWrap = 'wrap';
   } else {
-    // distribute equally
     localPlayerAreas.forEach(a=> a.el.style.flex = `1 1 ${Math.floor(100/count)}%`);
     playersContainer.style.flexWrap = 'nowrap';
   }
 }
 
-// Core: init game for an area
+function enableLocalControls(enabled){
+  levelSel.disabled = !enabled;
+  customN.disabled = !enabled;
+  cellSizeInput.disabled = !enabled;
+  fontCellInput.disabled = !enabled;
+  fontTargetInput.disabled = !enabled;
+  countdownInput.disabled = !enabled;
+  playersCount.disabled = !enabled;
+}
+
+// Core game init (uses roomConfig if present)
 function initGameForArea(areaObj, opts){
-  // resolve options with defaults and UI global defaults
-  const level = levelSel.value;
-  const cellSize = (opts && opts.cellSize) || parseInt(cellSizeInput.value) || 60;
-  const fontCell = (opts && opts.fontCell) || parseInt(fontCellInput.value) || 25;
-  const fontTarget = parseInt(fontTargetInput.value) || 65;
-  const countdownSec = parseInt(countdownInput.value) || 600;
+  const cfg = roomConfig || {};
+  const level = cfg.level || levelSel.value;
+  const cellSize = (opts && opts.cellSize) || cfg.cellSize || parseInt(cellSizeInput.value) || 60;
+  const fontCell = (opts && opts.fontCell) || cfg.fontCell || parseInt(fontCellInput.value) || 25;
+  const fontTarget = cfg.fontTarget || parseInt(fontTargetInput.value) || 65;
+  const countdownSec = cfg.countdown || parseInt(countdownInput.value) || 600;
 
   let n, total;
   if(level==='easy'){ n=5; total=25; }
   else if(level==='medium'){ n=7; total=49; }
   else if(level==='hard'){ n=10; total=100; }
-  else { n = Math.max(10, parseInt(customN.value)||12); total = n*n; }
+  else { n = Math.max(10, parseInt(cfg.customN || customN.value) || 12); total = n*n; }
 
-  // adjust cell size responsively: attempt to fit svg container
+  // responsive scaling
   const wrapRect = areaObj.el.querySelector('.grid-wrap').getBoundingClientRect();
   const maxW = Math.max(100, wrapRect.width - 10);
   const maxH = Math.max(100, wrapRect.height - 10);
-  // try scale so grid fits
   const requiredW = cellSize * n;
   const requiredH = cellSize * n;
   let scale = Math.min(1, Math.min(maxW/requiredW, maxH/requiredH));
   const finalCell = Math.max(20, Math.floor(cellSize * scale));
 
-  // generate numbers 1..total shuffled
   const numbers = shuffle(Array.from({length: total}, (_,i)=>i+1));
-
-  // colors for each cell distinct
   const bgColors = distinctColors(total);
-  // ensure number color not equal to bg: use black/white based on lightness
-  function contrastColor(hsl){
-    // crude: parse lightness
-    const m = hsl.match(/hsl\(\s*\d+\s+\d+% (\d+)%\)/);
-    if(m){
-      const l = parseInt(m[1],10);
-      return l>55 ? '#111' : '#fff';
-    }
-    return '#000';
-  }
 
-  // construct SVG grid
   const svg = areaObj.svg;
   svg.innerHTML = '';
   svg.setAttribute('viewBox', `0 0 ${n*finalCell} ${n*finalCell}`);
@@ -229,12 +267,10 @@ function initGameForArea(areaObj, opts){
       g.appendChild(text);
       svg.appendChild(g);
 
-      // click behavior
       rect.addEventListener('click', () => onCellClick(areaObj, rect, num));
     }
   }
 
-  // init state
   areaObj.state = {
     n, total, numbersOrder: numbers, nextNeeded: 1,
     started: false, startTs: null, elapsed: 0, remaining: countdownSec*1000,
@@ -246,9 +282,6 @@ function initGameForArea(areaObj, opts){
   areaObj.timeLeftSpan.textContent = formatTime(areaObj.state.remaining);
   areaObj.elapsedSpan.textContent = '0.000s';
   areaObj.bestSpan.textContent = sessionBestTimes[areaObj.el.dataset.areaId] ? msToStr(sessionBestTimes[areaObj.el.dataset.areaId]) : '--';
-
-  // start timer when first correct click happens
-  // expose method
 }
 
 function stopGameForArea(areaObj){
@@ -266,12 +299,11 @@ function stopGameForArea(areaObj){
 function onCellClick(areaObj, rect, num){
   if(!areaObj.state) return;
   const st = areaObj.state;
-  if(num !== st.nextNeeded) return; // must click in order
+  if(num !== st.nextNeeded) return;
 
   if(!st.started){
     st.started = true;
     st.startTs = Date.now();
-    // start countdown
     st.timerInterval = setInterval(()=>{
       const elapsed = Date.now()-st.startTs;
       st.elapsed = elapsed;
@@ -281,16 +313,13 @@ function onCellClick(areaObj, rect, num){
       if(st.remaining<=0){
         clearInterval(st.timerInterval);
         st.timerInterval = null;
-        // time up
         areaObj.targetSpan.textContent = 'TIME';
       }
     }, 50);
   }
 
-  // mark cell as found: reduce opacity, strike, etc
   rect.setAttribute('opacity', '0.35');
   const g = rect.parentNode;
-  // draw ring or check
   const check = document.createElementNS('http://www.w3.org/2000/svg','text');
   check.setAttribute('x', parseFloat(rect.getAttribute('x')) + parseFloat(rect.getAttribute('width'))/2);
   check.setAttribute('y', parseFloat(rect.getAttribute('y')) + parseFloat(rect.getAttribute('height'))/2 + 6);
@@ -304,47 +333,34 @@ function onCellClick(areaObj, rect, num){
   areaObj.targetSpan.textContent = st.nextNeeded <= st.total ? st.nextNeeded : 'Done';
 
   if(st.nextNeeded > st.total){
-    // finished
     const totalTime = Date.now() - st.startTs;
     clearInterval(st.timerInterval);
     st.timerInterval = null;
     areaObj.elapsedSpan.textContent = (totalTime/1000).toFixed(3)+'s';
     areaObj.timeLeftSpan.textContent = formatTime(Math.max(0, (areaObj.config.countdownSec*1000)-totalTime));
-    // update best local session
     const aid = areaObj.el.dataset.areaId;
     const prev = sessionBestTimes[aid];
     if(!prev || totalTime < prev) sessionBestTimes[aid] = totalTime;
     areaObj.bestSpan.textContent = msToStr(sessionBestTimes[aid]);
-    // notify server of submitted time
-    socket.emit('submit-time', {roomId: roomIdInput.value||'room1', ms: totalTime});
+    // notify server
+    socket.emit('submit-time', { roomId: roomIdInput.value||'room1', ms: totalTime });
   }
 }
 
-function formatTime(ms){
-  const s = Math.floor(ms/1000);
-  const mm = Math.floor(s/60).toString().padStart(2,'0');
-  const ss = (s%60).toString().padStart(2,'0');
-  return `${mm}:${ss}`;
-}
-function msToStr(ms){ return (ms/1000).toFixed(3)+'s'; }
-
-// Start button handler: setup players and init each game
+// Start: setup UI areas using server config if present
 startBtn.addEventListener('click', () => {
-  const count = parseInt(playersCount.value) || 1;
+  const count = Math.min(4, parseInt(playersCount.value) || 1);
   setupPlayersUI(count);
-  // initialize each area with initial config
   localPlayerAreas.forEach(a => {
-    // apply global cell/font defaults to area controls
-    a.cellSizeInput.value = parseInt(cellSizeInput.value);
-    a.fontCellInput.value = parseInt(fontCellInput.value);
-    initGameForArea(a, {cellSize: parseInt(cellSizeInput.value), fontCell: parseInt(fontCellInput.value)});
+    a.cellSizeInput.value = roomConfig ? roomConfig.cellSize : parseInt(cellSizeInput.value);
+    a.fontCellInput.value = roomConfig ? roomConfig.fontCell : parseInt(fontCellInput.value);
+    initGameForArea(a, {cellSize: parseInt(a.cellSizeInput.value), fontCell: parseInt(a.fontCellInput.value)});
   });
 });
 
-// initial default setup
-setupPlayersUI(parseInt(playersCount.value)||1);
+// initial setup
+setupPlayersUI(Math.min(4, parseInt(playersCount.value)||1));
 
-// allow resizing: re-init when window resizes to adjust scale
 let resizeTimeout;
 window.addEventListener('resize', ()=> {
   clearTimeout(resizeTimeout);
@@ -354,3 +370,15 @@ window.addEventListener('resize', ()=> {
     });
   }, 250);
 });
+
+function applyRoomConfigToUI(cfg){
+  if(!cfg) return;
+  // apply settings to controls and lock them (only creator can change but server owns config)
+  levelSel.value = cfg.level;
+  customN.value = cfg.customN;
+  cellSizeInput.value = cfg.cellSize;
+  fontCellInput.value = cfg.fontCell;
+  fontTargetInput.value = cfg.fontTarget;
+  countdownInput.value = cfg.countdown;
+  enableLocalControls(false);
+}
