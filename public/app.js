@@ -1,263 +1,337 @@
-// app.js - client
-const socket = io(); // default connects to same origin
-const LEVELS = { easy:{n:5,max:25}, medium:{n:7,max:49}, hard:{n:10,max:100}, insane:{n:null,max:null} };
-const DEFAULT_COUNTDOWN = 600;
+const socket = io();
+let currentRoom = null;
+let me = {name: null, id: null};
+let grids = {}; // socketId -> {n,max,numbers,colors,nextToFind,svgEl,cellSize,fontSize}
+const defaultCellSize = 60; // 60px default
+const defaultFontSize = 25;
 
-let state = {
-  roomId: null, name: null, level:'easy', insaneN:12,
-  localGridSpec: null, target:1, countdown:DEFAULT_COUNTDOWN,
-  timer:null, elapsedMs:0, running:false, bestSession:null, players:{}
+function $(id){return document.getElementById(id)}
+
+// Lobby UI
+const roomsList = $('rooms');
+const playerName = $('playerName');
+const nameInput = $('nameInput');
+const createEasy = $('createEasy');
+const createMedium = $('createMedium');
+const createHard = $('createHard');
+const createSuper = $('createSuper');
+const superN = $('superN');
+const countdownInput = $('countdown');
+
+createEasy.onclick = ()=> createRoom('easy');
+createMedium.onclick = ()=> createRoom('medium');
+createHard.onclick = ()=> createRoom('hard');
+createSuper.onclick = ()=> createRoom('super', parseInt(superN.value,10));
+
+$('chatInput').addEventListener('keydown', e=>{
+  if (e.key === 'Enter') {
+    const text = e.target.value.trim();
+    if (!text || !currentRoom) return;
+    socket.emit('sendChat',{roomId: currentRoom.id, text});
+    e.target.value = '';
+  }
+});
+
+// name change
+nameInput.addEventListener('change', ()=>{
+  const name = nameInput.value.trim();
+  if (!name) return;
+  socket.emit('setName',{name});
+  playerName.textContent = name;
+});
+
+// lobby handlers
+socket.on('lobbyList', list => {
+  roomsList.innerHTML = '';
+  list.forEach(r=>{
+    const li = document.createElement('li');
+    li.textContent = `${r.name} [${r.level}] (${r.players}/4)`;
+    const btn = document.createElement('button');
+    btn.textContent = 'Join';
+    btn.onclick = ()=> socket.emit('joinRoom',{roomId: r.id});
+    li.appendChild(btn);
+    roomsList.appendChild(li);
+  });
+});
+
+socket.on('roomJoined', ({room})=>{
+  enterRoom(room);
+});
+
+socket.on('roomUpdate', room=>{
+  enterRoom(room);
+});
+
+socket.on('errorMsg', m=> alert(m));
+
+// Room UI
+$('leaveRoom').onclick = ()=> {
+  if (!currentRoom) return;
+  socket.emit('leaveRoom',{roomId: currentRoom.id});
+  leaveRoomUI();
 };
 
-const el = id => document.getElementById(id);
-const randInt = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
-const shuffle = arr => { for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]]} return arr; };
+$('startGame').onclick = ()=> {
+  if (!currentRoom) return;
+  socket.emit('startGame',{roomId: currentRoom.id});
+};
 
-el('level').addEventListener('change', e=>{
-  el('insaneN').style.display = e.target.value==='insane' ? 'inline-block' : 'none';
+socket.on('gameStarted', snapshot=>{
+  currentRoom = snapshot;
+  $('roomState').textContent = snapshot.state;
+  // request grid data will come in separate event via room snapshot on server
+  renderRoom(snapshot);
 });
-el('create').addEventListener('click', ()=>{
-  const name = el('username').value || undefined;
-  const level = el('level').value;
-  socket.emit('create_room', { name, level }, res => {
-    if(!res?.ok) return alert(res?.error || 'Không tạo được phòng');
-    enterRoom(res.roomId, res.name);
-    el('roomLevel').value = level;
-  });
-});
-el('join').addEventListener('click', ()=>{
-  const roomId = el('joinRoomInput').value.trim();
-  if(!roomId) return alert('Nhập mã phòng');
-  const name = el('username').value || undefined;
-  socket.emit('join_room', { roomId, name }, res => {
-    if(!res?.ok) return alert(res?.error || 'Không thể tham gia');
-    enterRoom(res.roomId, res.name);
-  });
-});
-el('leaveRoom').addEventListener('click', ()=> location.reload());
-el('sendChat').addEventListener('click', sendChat);
-el('chatInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendChat(); });
-el('startGame').addEventListener('click', ()=>{
-  if(!state.roomId) return;
-  startLocalGame();
-  socket.emit('player_grid_ready', state.localGridSpec);
-});
-el('roomLevel').addEventListener('change', ()=> socket.emit('set_level', el('roomLevel').value));
 
-function sendChat(){
-  const v = el('chatInput').value.trim(); if(!v) return;
-  socket.emit('chat', v); el('chatInput').value='';
+socket.on('tick', ({timeLeft})=>{
+  $('timeLeft').textContent = formatTime(timeLeft);
+});
+
+socket.on('timeUp', snapshot=>{
+  $('timeLeft').textContent = '00:00';
+  alert('Time up!');
+  renderRoom(snapshot);
+});
+
+socket.on('playerProgress', ({playerId, next})=>{
+  // update UI small badge
+  const el = document.querySelector(`#player-${playerId} .progress`);
+  if (el) el.textContent = next-1;
+});
+
+socket.on('playerFinished', ({playerId, elapsed})=>{
+  const el = document.querySelector(`#player-${playerId} .progress`);
+  if (el) el.textContent = 'Finished';
+  // show elapsed
+  const p = document.querySelector(`#player-${playerId} .time`);
+  if (p) p.textContent = formatTime(elapsed);
+});
+
+socket.on('allFinished', snapshot=>{
+  renderRoom(snapshot);
+  alert('All finished');
+});
+
+socket.on('chat', msg=>{
+  const box = $('chatBox');
+  const el = document.createElement('div');
+  el.textContent = `${msg.from}: ${msg.text}`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+});
+
+socket.on('roomJoined', r => renderRoom(r));
+socket.on('roomUpdate', r => renderRoom(r));
+
+function enterRoom(room){
+  currentRoom = room;
+  $('lobby').classList.add('hidden');
+  $('room').classList.remove('hidden');
+  $('roomName').textContent = room.name;
+  $('roomState').textContent = room.state;
+  $('levelLabel').textContent = room.level;
+  renderPlayersList(room.players || []);
 }
 
-function enterRoom(roomId, name){
-  state.roomId = roomId; state.name = name;
-  el('lobby').style.display = 'none'; el('room').style.display = 'block';
-  el('roomIdDisplay').textContent = roomId;
-  startKeepAlive();
+function leaveRoomUI(){
+  currentRoom = null;
+  $('lobby').classList.remove('hidden');
+  $('room').classList.add('hidden');
+  grids = {};
+  $('gridsContainer').innerHTML = '';
 }
 
-function makeGridSpec(level, insaneN){
-  let n,max;
-  if(level==='insane'){ n = Math.max(10, Number(insaneN) || 12); max = n*n; }
-  else { n = LEVELS[level].n; max = LEVELS[level].max; }
-  const nums = shuffle(Array.from({length:max}, (_,i)=>i+1));
-  const cells = [];
-  for(let i=0;i<max;i++){
-    cells.push({ num: nums[i], bg: randomDistinctColor() });
+function renderPlayersList(players){
+  const ul = $('players');
+  ul.innerHTML = '';
+  players.forEach(p=>{
+    const li = document.createElement('li');
+    li.id = `player-${p.id}`;
+    li.innerHTML = `<div class="playerLabel">${p.name} <span class="progress">0</span> <span class="time">${p.bestTime?formatTime(p.bestTime):'-'}</span></div>`;
+    ul.appendChild(li);
+  });
+}
+
+function renderRoom(room){
+  renderPlayersList(room.players || []);
+  $('roomState').textContent = room.state;
+  $('timeLeft').textContent = formatTime(room.timeLeft || 0);
+  // best times
+  const bt = $('bestTimes'); bt.innerHTML = '';
+  Object.entries(room.bestTimes||{}).forEach(([name,val])=>{
+    const li = document.createElement('li'); li.textContent = `${name}: ${formatTime(val)}`; bt.appendChild(li);
+  });
+  // if playing, request grids from server via current snapshot: but server currently sent grids at startGame only in 'gameStarted' with snapshot including playerGrids? For simplicity, we simulate fetch by asking server to send per-player grid (not implemented separately), so the server sends 'gameStarted' earlier.
+}
+
+// helper time formatting
+function formatTime(sec){
+  if (sec == null) return '--:--';
+  const m = Math.floor(sec/60).toString().padStart(2,'0');
+  const s = Math.floor(sec%60).toString().padStart(2,'0');
+  return `${m}:${s}`;
+}
+
+// create room helper
+function createRoom(level, n){
+  const cd = parseInt(countdownInput.value,10) || undefined;
+  socket.emit('createRoom',{level, n, countdown: cd});
+}
+
+// Receiving initial room snapshot (when join/create)
+socket.on('roomJoined', ({room})=>{
+  enterRoom(room);
+});
+
+// The server doesn't currently send actual per-player grids content in this simplified client; we'll request them by listening to a 'gameStarted' event that includes necessary playerGrids. For demonstration we'll handle a client-side generation when receiving gameStarted.
+socket.on('gameStarted', ({id, players, timeLeft, level})=>{
+  // We'll request a lightweight 'gridData' from server by asking server to include it; but to keep client working with server above, assume server sends playerGrids embedded in snapshot
+});
+
+// For simulation: we handle grid rendering when server sends 'gameStarted' with full snapshot including playerGrids (server currently includes playerGrids in memory but not emitted fully — let's instead ask server to emit full snapshot via 'roomUpdate' that contains playerGrids).
+socket.on('roomUpdate', room=>{
+  if (room.state === 'playing' && room.playerGrids) {
+    // we expect server to include playerGrids keyed by playerId
+    renderGrids(room);
   }
-  return { n, max, cells };
-}
+});
 
-function randomDistinctColor(){
-  const h = randInt(0,360), s=randInt(60,85), l=randInt(45,70);
-  return `hsl(${h} ${s}% ${l}%)`;
-}
+// But because server above emits 'gameStarted' with roomSnapshot only, and we attached playerGrids there, add handler:
+socket.on('gameStarted', room=>{
+  renderGrids(room);
+  $('timeLeft').textContent = formatTime(room.timeLeft);
+  // set target number for local player
+  if (grids[socket.id]) updateTargetNumber(grids[socket.id].nextToFind);
+});
 
-function computeLayout(n, playersCount){
-  const wrap = el('playerGrids').getBoundingClientRect();
-  const containerWidth = Math.max(300, wrap.width || window.innerWidth*0.6);
-  let cols = 1;
-  if(playersCount===2) cols=2;
-  else if(playersCount===3) cols=2;
-  else if(playersCount===4) cols=2;
-  const maxGridWidth = Math.floor((containerWidth - (cols-1)*12) / cols);
-  const cellSize = Math.max(30, Math.floor(maxGridWidth / n));
-  const cellFont = Math.max(12, Math.floor(cellSize * 0.42));
-  return { cellSize, cellFont };
-}
-
-function renderGridSvg(container, spec, opts){
-  const n = spec.n, cellSize = opts.cellSize, fontSize = opts.fontSize;
-  const width = n*cellSize;
-  const height = width;
-  const svgNS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNS,'svg');
-  svg.setAttribute('width', width); svg.setAttribute('height', height);
-  svg.setAttribute('viewBox', `0 0 ${width} ${height}`); svg.classList.add('svgWrap');
-
-  // clear
+// The renderGrids function: build responsive SVG grids per player
+function renderGrids(room){
+  const container = $('gridsContainer');
   container.innerHTML = '';
-  container.appendChild(svg);
+  grids = {};
+  // assume server included playerGrids in payload at key playerGrids (matching server implementation)
+  const playerGrids = room.playerGrids || {};
+  const playerIds = Object.keys(playerGrids);
 
-  for(let r=0;r<n;r++){
-    for(let c=0;c<n;c++){
+  // compute layout: if 4 players -> 2x2 fixed
+  let cols = 1;
+  if (playerIds.length === 4) cols = 2;
+  else if (playerIds.length === 3) cols = 2;
+  else if (playerIds.length === 2) cols = 2;
+  else cols = 1;
+
+  playerIds.forEach(pid=>{
+    const pg = playerGrids[pid];
+    const wrapper = document.createElement('div');
+    wrapper.className = 'gridWrap';
+    wrapper.style.flex = `1 1 ${Math.floor(100/cols)-2}%`;
+    const playerLabel = document.createElement('div');
+    playerLabel.className = 'playerLabel';
+    const pl = room.players.find(p=>p.id===pid);
+    playerLabel.textContent = pl ? pl.name : pid;
+    wrapper.appendChild(playerLabel);
+
+    // responsive cell size calculation: try to fit in available width
+    const availableWidth = Math.max(200, window.innerWidth * 0.45 / cols);
+    const n = pg.n;
+    let cellSize = 60;
+    // adjust cell size so that grid fits within available width
+    const maxGridWidth = Math.min(availableWidth, 800);
+    const calcCell = Math.floor(maxGridWidth / n) - 4;
+    if (calcCell > 30) cellSize = Math.min(calcCell, 80);
+    else cellSize = Math.max(calcCell, 24);
+
+    const svg = createGridSVG(pg.n, pg.numbers, pg.colors, cellSize, defaultFontSize, pid);
+    wrapper.appendChild(svg);
+    container.appendChild(wrapper);
+
+    grids[pid] = {n:pg.n, max:pg.max, numbers:pg.numbers, colors:pg.colors, nextToFind:pg.nextToFind, svgEl:svg, cellSize, fontSize: defaultFontSize};
+    // attach click handler
+    svg.addEventListener('click', e=>{
+      const target = e.target;
+      if (!target.dataset?.idx) return;
+      const idx = parseInt(target.dataset.idx,10);
+      // send selection
+      socket.emit('cellSelected',{roomId: room.id, cellIndex: idx});
+    });
+  });
+
+  // set target for local player (socket.id)
+  if (grids[socket.id]) updateTargetNumber(grids[socket.id].nextToFind);
+}
+
+function createGridSVG(n, numbers, colors, cellSize, fontSize, ownerId){
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS,'svg');
+  svg.setAttribute('width', cellSize * n + 2);
+  svg.setAttribute('height', cellSize * n + 2);
+  svg.classList.add('gridSVG');
+
+  for (let r=0;r<n;r++){
+    for (let c=0;c<n;c++){
       const idx = r*n + c;
-      const cell = spec.cells[idx];
       const rect = document.createElementNS(svgNS,'rect');
-      rect.setAttribute('x', c*cellSize); rect.setAttribute('y', r*cellSize);
-      rect.setAttribute('width', cellSize); rect.setAttribute('height', cellSize);
-      rect.setAttribute('fill', cell.bg); rect.setAttribute('stroke', '#999');
+      rect.setAttribute('x', c*cellSize);
+      rect.setAttribute('y', r*cellSize);
+      rect.setAttribute('width', cellSize);
+      rect.setAttribute('height', cellSize);
+      rect.setAttribute('fill', colors[idx]);
+      rect.classList.add('cellRect');
+      rect.dataset.idx = idx;
       svg.appendChild(rect);
 
-      const txt = document.createElementNS(svgNS,'text');
-      txt.setAttribute('x', c*cellSize + cellSize/2);
-      txt.setAttribute('y', r*cellSize + cellSize/2 + fontSize*0.35);
-      txt.setAttribute('text-anchor', 'middle');
-      txt.setAttribute('font-size', fontSize);
-      txt.setAttribute('fill', '#111');
-      txt.setAttribute('pointer-events', 'none');
-      txt.textContent = cell.num;
-      svg.appendChild(txt);
+      const text = document.createElementNS(svgNS,'text');
+      text.setAttribute('x', c*cellSize + cellSize/2);
+      text.setAttribute('y', r*cellSize + cellSize/2 + fontSize/3);
+      text.setAttribute('text-anchor','middle');
+      text.setAttribute('font-size', fontSize);
+      text.setAttribute('fill','#000');
+      text.classList.add('cellText');
+      text.textContent = numbers[idx];
+      svg.appendChild(text);
     }
   }
-
-  svg.addEventListener('click', ev => {
-    const rect = svg.getBoundingClientRect();
-    const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
-    const c = Math.floor(x / cellSize), r = Math.floor(y / cellSize);
-    if(c<0||r<0||c>=n||r>=n) return;
-    const idx = r*n + c;
-    onCellClick(idx, spec, svg, cellSize);
-  });
+  return svg;
 }
 
-function onCellClick(idx, spec, svg, cellSize){
-  const cell = spec.cells[idx];
-  if(!cell) return;
-  const expected = state.target;
-  if(cell.num !== expected){
-    flashCell(svg, idx, cellSize, '#ff000020'); return;
+socket.on('cellCorrect', ({cellIndex, next})=>{
+  // mark cell visually for this client
+  const g = grids[socket.id];
+  if (!g) return;
+  const svg = g.svgEl;
+  const rect = svg.querySelector(`rect[data-idx='${cellIndex}']`);
+  if (rect) {
+    rect.setAttribute('stroke','limegreen');
+    rect.setAttribute('stroke-width','4');
   }
-  markCellFound(svg, idx, cellSize);
-  state.target++;
-  el('targetNumber').textContent = state.target;
-  socket.emit('player_progress', { current:{ target: state.target }, time: state.elapsedMs });
-  if(state.target > spec.max) finishLocalGame();
-}
-
-function markCellFound(svg, idx, cellSize){
-  const n = state.localGridSpec.n;
-  const r = Math.floor(idx/n), c = idx % n;
-  const svgNS = "http://www.w3.org/2000/svg";
-  const overlay = document.createElementNS(svgNS,'rect');
-  overlay.setAttribute('x', c*cellSize); overlay.setAttribute('y', r*cellSize);
-  overlay.setAttribute('width', cellSize); overlay.setAttribute('height', cellSize);
-  overlay.setAttribute('fill', '#00000055');
-  svg.appendChild(overlay);
-}
-
-function flashCell(svg, idx, cellSize, color){
-  const n = state.localGridSpec.n;
-  const r = Math.floor(idx/n), c = idx % n;
-  const svgNS = "http://www.w3.org/2000/svg";
-  const f = document.createElementNS(svgNS,'rect');
-  f.setAttribute('x', c*cellSize); f.setAttribute('y', r*cellSize);
-  f.setAttribute('width', cellSize); f.setAttribute('height', cellSize);
-  f.setAttribute('fill', color);
-  svg.appendChild(f);
-  setTimeout(()=>f.remove(),300);
-}
-
-function startLocalGame(){
-  const level = el('roomLevel').value || 'easy';
-  const insaneN = Number(el('insaneNInput')?.value) || 12;
-  const spec = makeGridSpec(level, insaneN);
-  state.localGridSpec = spec;
-  state.target = 1; el('targetNumber').textContent = state.target;
-  state.countdown = DEFAULT_COUNTDOWN; el('countdown').textContent = state.countdown;
-  state.elapsedMs = 0; el('elapsed').textContent = '0';
-  state.running = true;
-  const playersCount = Math.max(1, Object.keys(state.players).length || 1);
-  const layout = computeLayout(spec.n, playersCount);
-  const wrapper = document.createElement('div'); wrapper.className='playerGridWrap';
-  wrapper.style.width = (layout.cellSize * spec.n) + 'px';
-  const nameDiv = document.createElement('div'); nameDiv.className='playerName'; nameDiv.textContent = state.name + ' (you)';
-  wrapper.appendChild(nameDiv);
-  const gridDiv = document.createElement('div');
-  wrapper.appendChild(gridDiv);
-  renderGridSvg(gridDiv, spec, { cellSize: layout.cellSize, fontSize: layout.cellFont });
-  el('playerGrids').innerHTML = ''; el('playerGrids').appendChild(wrapper);
-  socket.emit('player_grid_ready', spec);
-  if(state.timer) clearInterval(state.timer);
-  const startTs = Date.now();
-  let lastTick = startTs;
-  state.timer = setInterval(()=>{
-    const now = Date.now(); const dt = now - lastTick; lastTick = now;
-    state.elapsedMs += dt;
-    const secLeft = Math.max(0, state.countdown - Math.floor(state.elapsedMs/1000));
-    el('countdown').textContent = secLeft; el('elapsed').textContent = Math.floor(state.elapsedMs/1000);
-    if(secLeft<=0){
-      clearInterval(state.timer); state.running=false; alert('Time up!');
-    }
-  }, 200);
-}
-
-function finishLocalGame(){
-  state.running = false;
-  if(state.timer) clearInterval(state.timer);
-  if(!state.bestSession || state.elapsedMs < state.bestSession) state.bestSession = state.elapsedMs;
-  el('bestSession').textContent = `${Math.floor(state.bestSession/1000)}s`;
-  el('elapsed').textContent = Math.floor(state.elapsedMs/1000);
-  socket.emit('player_progress', { current:{ doneAtMs: state.elapsedMs }, time: state.elapsedMs });
-  alert(`Hoàn thành trong ${Math.floor(state.elapsedMs/1000)}s`);
-}
-
-socket.on('room_update', data => {
-  if(!data) return;
-  state.players = {};
-  data.players.forEach(p => state.players[p.socketId] = p);
-  el('roomIdDisplay').textContent = data.roomId;
-  el('roomLevel').value = data.level || 'easy';
-  el('ownerBadge').textContent = data.owner === socket.id ? '(Chủ phòng)' : '';
-  renderOtherPlayers();
+  g.nextToFind = next;
+  updateTargetNumber(next);
 });
 
-socket.on('chat', m => {
-  const node = document.createElement('div');
-  node.textContent = `[${new Date(m.ts).toLocaleTimeString()}] ${m.from}: ${m.msg}`;
-  el('chatLog').appendChild(node); el('chatLog').scrollTop = el('chatLog').scrollHeight;
+socket.on('cellWrong', ({cellIndex, expected})=>{
+  // flash red border
+  const g = grids[socket.id];
+  if (!g) return;
+  const svg = g.svgEl;
+  const rect = svg.querySelector(`rect[data-idx='${cellIndex}']`);
+  if (rect) {
+    rect.setAttribute('stroke','crimson');
+    rect.setAttribute('stroke-width','4');
+    setTimeout(()=>{ rect.setAttribute('stroke','#fff'); rect.setAttribute('stroke-width','2'); }, 400);
+  }
 });
 
-socket.on('player_progress', info => { renderOtherPlayers(); });
-
-function renderOtherPlayers(){
-  const container = el('playerGrids');
-  const local = Array.from(container.children).find(c => c.querySelector('.playerName')?.textContent?.includes('(you)'));
-  const snapshots = [];
-  for(const [sid,p] of Object.entries(state.players)){
-    if(p.name === state.name) continue;
-    snapshots.push({ sid, ...p });
-  }
-  container.innerHTML = '';
-  if(local) container.appendChild(local);
-  const playersCount = snapshots.length + (local?1:0);
-  snapshots.forEach(p=>{
-    const wrap = document.createElement('div'); wrap.className='playerGridWrap';
-    const nameDiv = document.createElement('div'); nameDiv.className='playerName'; nameDiv.textContent = p.name;
-    wrap.appendChild(nameDiv);
-    const gridDiv = document.createElement('div');
-    if(p.gridSpec){
-      const layout = computeLayout(p.gridSpec.n, Math.max(1, playersCount));
-      renderGridSvg(gridDiv, p.gridSpec, { cellSize: Math.max(20, Math.floor(layout.cellSize*0.6)), fontSize: Math.max(10, Math.floor(layout.cellFont*0.6)) });
-    } else {
-      gridDiv.textContent = 'Waiting...';
-    }
-    const info = document.createElement('div'); info.textContent = `Best: ${p.bestTime ? Math.floor(p.bestTime/1000)+'s' : '—'}`;
-    wrap.appendChild(gridDiv); wrap.appendChild(info);
-    container.appendChild(wrap);
-  });
+function updateTargetNumber(next){
+  $('targetNumber').textContent = next;
 }
 
-function startKeepAlive(){ setInterval(()=>socket.emit('keepalive'), 10000); }
+// initial player name display
+socket.on('connect', ()=>{
+  me.id = socket.id;
+  $('playerName').textContent = 'Guest';
+});
 
-el('targetNumber').textContent='—'; el('countdown').textContent=DEFAULT_COUNTDOWN;
+// small UX helpers
+window.addEventListener('resize', ()=>{
+  // Re-render grids to adapt sizes if needed
+});
