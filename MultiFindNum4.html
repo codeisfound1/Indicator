@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="vi">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Grid Generator Game - Per-player Target</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Grid Generator — Responsive Multiplayer</title>
 <style>
   :root{
     --cell-size:60px;
@@ -11,22 +11,27 @@
     --target-font:65px;
     --gap:6px;
   }
-  body{font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin:12px; background:#f6f7f9;}
+  body{
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+    margin:12px;
+    background:#f6f7f9;
+    color:#111;
+  }
   .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;}
   .top-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
-  .grids-wrap{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;}
-  .player-area{background:#fff;padding:10px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,0.06);min-width:260px;}
+  .grids-wrap{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;align-items:flex-start;}
+  .player-area{background:#fff;padding:10px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,0.06);min-width:220px;display:flex;flex-direction:column;align-items:center}
   .player-title{font-weight:700;margin-bottom:8px;font-size:14px}
-  .player-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;}
+  .player-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;width:100%}
   .target-box{display:flex;align-items:center;justify-content:center;width:120px;height:64px;background:#fff;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,0.06);flex-direction:column}
   .target-number{font-weight:700;font-size:var(--target-font);line-height:1}
   .target-label{font-size:12px;color:#666}
-  .grid{display:grid;gap:var(--gap);touch-action:manipulation;user-select:none}
-  .cell{width:var(--cell-size);height:var(--cell-size);display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:#fff;font-weight:700;font-size:var(--cell-font)}
+  .grid{display:grid;gap:var(--gap);touch-action:manipulation;user-select:none;overflow:hidden}
+  .cell{display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:#fff;font-weight:700}
   .cell.disabled{opacity:0.45;pointer-events:none}
   .metrics{margin-top:8px;font-size:13px;color:#333}
-  @media (max-width:900px){:root{--cell-size:48px;--cell-font:20px;--target-font:48px}}
-  @media (max-width:420px){:root{--cell-size:40px;--cell-font:18px;--target-font:40px;--gap:4px}.target-box{width:100px;height:56px}}
+  @media (max-width:900px){:root{--target-font:48px}}
+  @media (max-width:420px){:root{--target-font:40px;--gap:4px}}
 </style>
 </head>
 <body>
@@ -43,27 +48,19 @@
     </label>
 
     <label id="customNlabel" style="display:none">n:
-      <input id="customN" type="number" min="10" value="12" style="width:72px" />
-    </label>
-
-    <label>Cell size (px):
-      <input id="cellSize" type="number" min="24" value="60" style="width:80px" />
-    </label>
-
-    <label>Cell font (px):
-      <input id="cellFont" type="number" min="10" value="25" style="width:80px" />
+      <input id="customN" type="number" min="10" value="12" style="width:72px"/>
     </label>
 
     <label>Target font (px):
-      <input id="targetFont" type="number" min="18" value="65" style="width:80px" />
+      <input id="targetFont" type="number" min="18" value="65" style="width:80px"/>
     </label>
 
     <label>Time (s):
-      <input id="countdown" type="number" min="10" value="600" style="width:90px" />
+      <input id="countdown" type="number" min="10" value="600" style="width:90px"/>
     </label>
 
     <label>Players:
-      <input id="players" type="number" min="1" max="4" value="1" style="width:64px" />
+      <input id="players" type="number" min="1" max="4" value="1" style="width:64px"/>
     </label>
 
     <button id="startBtn">Start</button>
@@ -71,236 +68,193 @@
   </div>
 </div>
 
-<div class="grids-wrap" id="gridsWrap">
-  <!-- player grids appended here -->
-</div>
+<div class="grids-wrap" id="gridsWrap"></div>
 
 <script>
-/* --- Helpers (same as before) --- */
-function formatTimeSec(s){ if(s<0)s=0; const mm = Math.floor(s/60).toString().padStart(2,'0'); const ss = Math.floor(s%60).toString().padStart(2,'0'); return `${mm}:${ss}`; }
-function randInt(min,max){return Math.floor(Math.random()*(max-min+1))+min;}
-function randomColor(){ const h=Math.floor(Math.random()*360); const s=60+Math.floor(Math.random()*30); const l=45+Math.floor(Math.random()*10); return `hsl(${h} ${s}% ${l}%)`; }
-function getContrastTextColor(rgbOrHsl){ const tmp=document.createElement('div'); tmp.style.color=rgbOrHsl; document.body.appendChild(tmp); const cs=getComputedStyle(tmp).color; document.body.removeChild(tmp); const parts=cs.match(/\d+/g); if(!parts) return '#000'; const r=+parts[0], g=+parts[1], b=+parts[2]; const brightness=(r*299+g*587+b*114)/1000; return brightness>150? '#000':'#fff'; }
-function shuffle(arr){ for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];} return arr; }
+/* Helpers */
+function formatTimeSec(s){ if(s<0)s=0; const mm=Math.floor(s/60).toString().padStart(2,'0'); const ss=Math.floor(s%60).toString().padStart(2,'0'); return `${mm}:${ss}`; }
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+function randomColor(){ const h=Math.floor(Math.random()*360), s=60+Math.floor(Math.random()*30), l=45+Math.floor(Math.random()*10); return `hsl(${h} ${s}% ${l}%)`; }
+function contrastColor(c){ const tmp=document.createElement('div'); tmp.style.color=c; document.body.appendChild(tmp); const cs=getComputedStyle(tmp).color; document.body.removeChild(tmp); const p=cs.match(/\d+/g); if(!p) return '#000'; const r=+p[0],g=+p[1],b=+p[2]; const bright=(r*299+g*587+b*114)/1000; return bright>150? '#000':'#fff'; }
 
-/* --- PlayerGame class with per-player target display --- */
-class PlayerGame {
-  constructor(playerIndex, settings, container){
-    this.playerIndex = playerIndex;
-    this.settings = settings;
-    this.container = container;
-    this.gridEl = null;
-    this.cells = [];
-    this.currentTarget = 1;
-    this.started = false;
-    this.ended = false;
-    this.remaining = settings.countdown;
-    this.startTimestamp = null;
-    this.finishSeconds = null;
-    this.bestKey = `best_time_player_${playerIndex}_${settings.max}`;
-    this.init();
-  }
-
-  init(){
-    this.container.innerHTML = '';
-    const title = document.createElement('div');
-    title.className = 'player-title';
-    title.textContent = `Player ${this.playerIndex+1}`;
-    this.container.appendChild(title);
-
-    // header with per-player target and timer
-    const header = document.createElement('div');
-    header.className = 'player-header';
-    const targetBox = document.createElement('div');
-    targetBox.className = 'target-box';
-    targetBox.innerHTML = `<div class="target-label">Cần tìm</div><div class="target-number" id="targetP${this.playerIndex}">1</div>`;
-    header.appendChild(targetBox);
-
-    const timerBox = document.createElement('div');
-    timerBox.style.textAlign='right';
-    timerBox.innerHTML = `<div style="font-size:12px;color:#666">Còn</div><div id="timerP${this.playerIndex}" style="font-weight:700">${formatTimeSec(this.settings.countdown)}</div><div style="font-size:12px;color:#666">Best: <span id="bestP${this.playerIndex}">—</span></div>`;
-    header.appendChild(timerBox);
-
-    this.container.appendChild(header);
-
-    const gridEl = document.createElement('div');
-    gridEl.className = 'grid';
-    this.gridEl = gridEl;
-    this.container.appendChild(gridEl);
-
-    const meta = document.createElement('div');
-    meta.className = 'metrics';
-    meta.innerHTML = `Đã tìm: <span class="foundCount">0</span> / ${this.settings.max}`;
-    this.container.appendChild(meta);
-    this.foundEl = meta.querySelector('.foundCount');
-
-    this.setupGrid();
-    this.applySizing();
-    this.updateTargetDisplay();
-    this.updateTimerDisplay();
-    const best = this.getBestTime(); if(best) this.container.querySelector('#bestP'+this.playerIndex).textContent = formatTimeSec(best);
-  }
-
-  setupGrid(){
-    const n = this.settings.n;
-    this.gridEl.style.gridTemplateColumns = `repeat(${n}, ${this.settings.cellSize}px)`;
-    this.gridEl.style.gridTemplateRows = `repeat(${n}, ${this.settings.cellSize}px)`;
-    this.gridEl.innerHTML = '';
-    this.cells = [];
-    let arr = [];
-    for(let i=1;i<=n*n;i++) arr.push(i);
-    arr = shuffle(arr);
-    for(let i=0;i<n*n;i++){
-      const val = arr[i];
-      const cell = document.createElement('button');
-      cell.className='cell';
-      cell.setAttribute('data-value', val);
-      cell.textContent = val;
-      const bg = randomColor();
-      cell.style.background = bg;
-      cell.style.color = getContrastTextColor(bg);
-      cell.style.fontSize = `${this.settings.cellFont}px`;
-      cell.addEventListener('click', ()=> this.onCellClick(cell, val));
-      this.gridEl.appendChild(cell);
-      this.cells.push(cell);
+/* Auto-sizing logic:
+ - Compute available width and height for grids-wrap.
+ - For each player, compute maximum cell size such that:
+    gridWidth = n * (cellSize) + (n-1)*gap  <= columnWidth
+    gridHeight = n * (cellSize) + (n-1)*gap <= availableHeightPerColumn (we use viewport height minus controls)
+ - Columns layout: try to place players in rows/columns to fit: prefer 1 row up to 1200px, otherwise wrap.
+ - We determine column count = min(players, maxCols) where maxCols chosen so each column width >= minColWidth (200)
+ - Use conservative gap.
+*/
+function computeOptimalCellSize(n, players){
+  const gap = 6;
+  const vw = Math.max(window.innerWidth || 360, 360);
+  const vh = Math.max(window.innerHeight || 600, 600);
+  // area reserved for controls at top (approx)
+  const controlsH = 160;
+  const availableH = Math.max(240, vh - controlsH - 48); // leave margin
+  // decide columns: try 1..players columns, choose layout that maximizes cellSize while keeping each column >= 240px
+  let best = {cellSize:24, cols:1};
+  for(let cols=1; cols<=players; cols++){
+    const rows = Math.ceil(players/cols);
+    // column width available
+    const totalGapHorz = (cols-1)*16;
+    const colWidth = Math.floor((vw - totalGapHorz - 24) / cols); // 24 page padding
+    const perColAvailableH = Math.floor((availableH - (rows-1)*16) / rows);
+    // compute max cellSize fitting both width and height
+    const maxCellFromWidth = Math.floor((colWidth - (n-1)*gap) / n);
+    const maxCellFromHeight = Math.floor((perColAvailableH - (n-1)*gap) / n);
+    const cellSize = Math.max(20, Math.min(maxCellFromWidth, maxCellFromHeight));
+    // enforce reasonable max (120)
+    const finalCell = Math.min(120, cellSize);
+    if(finalCell > best.cellSize){
+      best = {cellSize: finalCell, cols};
     }
   }
-
-  applySizing(){
-    this.gridEl.querySelectorAll('.cell').forEach(c=>{
-      c.style.width = this.settings.cellSize + 'px';
-      c.style.height = this.settings.cellSize + 'px';
-      c.style.fontSize = this.settings.cellFont + 'px';
-      c.style.borderRadius = Math.max(4, Math.round(this.settings.cellSize*0.08)) + 'px';
-    });
-  }
-
-  startTimer(globalUpdateCallback){
-    if(this.started) return;
-    this.started = true;
-    this.startTimestamp = Date.now();
-    this.remaining = this.settings.countdown;
-    this.updateInterval = setInterval(()=>{
-      this.remaining = this.settings.countdown - Math.floor((Date.now()-this.startTimestamp)/1000);
-      if(this.remaining <= 0){
-        this.remaining = 0;
-        clearInterval(this.updateInterval);
-        this.end(false);
-      }
-      this.updateTimerDisplay();
-      globalUpdateCallback();
-    }, 300);
-  }
-
-  onCellClick(cell, val){
-    if(this.ended) return;
-    if(!this.started){
-      this.startTimer(()=>updateGlobalUI());
-    }
-    if(val === this.currentTarget){
-      cell.classList.add('disabled');
-      this.currentTarget++;
-      this.foundEl.textContent = (this.currentTarget-1);
-      this.updateTargetDisplay();
-      if(this.currentTarget > this.settings.max){
-        this.end(true);
-      }
-    } else {
-      cell.animate([{transform:'scale(1)'},{transform:'scale(0.95)'},{transform:'scale(1)'}],{duration:150});
-    }
-  }
-
-  updateTargetDisplay(){
-    const el = this.container.querySelector('#targetP'+this.playerIndex);
-    el.textContent = this.currentTarget <= this.settings.max ? this.currentTarget : '—';
-  }
-
-  updateTimerDisplay(){
-    const el = this.container.querySelector('#timerP'+this.playerIndex);
-    el.textContent = formatTimeSec(this.started ? this.remaining : this.settings.countdown);
-  }
-
-  end(success){
-    this.ended = true;
-    clearInterval(this.updateInterval);
-    if(success){
-      const took = Math.floor((Date.now()-this.startTimestamp)/1000);
-      this.finishSeconds = took;
-      const prev = sessionStorage.getItem(this.bestKey);
-      if(!prev || took < Number(prev)) sessionStorage.setItem(this.bestKey, String(took));
-      this.container.querySelector('#bestP'+this.playerIndex).textContent = formatTimeSec(this.getBestTime());
-    } else {
-      this.cells.forEach(c=>c.classList.add('disabled'));
-    }
-  }
-
-  getBestTime(){ const v = sessionStorage.getItem(this.bestKey); return v?Number(v):null; }
+  return best.cellSize;
 }
 
-/* --- Orchestration (adjusted for per-player displays) --- */
-const gridsWrap = document.getElementById('gridsWrap');
-const startBtn = document.getElementById('startBtn');
-const resetBtn = document.getElementById('resetBtn');
+/* Player game similar to prior but uses computed cell size */
+class PlayerGame {
+  constructor(idx, n, cellSize, countdown, container, targetFont){
+    this.idx=idx; this.n=n; this.cellSize=cellSize; this.countdown=countdown; this.container=container; this.targetFont=targetFont;
+    this.current=1; this.started=false; this.ended=false; this.remaining=countdown; this.startTs=null; this.finish=null;
+    this.bestKey = `best_p_${idx}_n${n}`;
+    this.init();
+  }
+  init(){
+    this.container.innerHTML='';
+    const title = document.createElement('div'); title.className='player-title'; title.textContent=`Player ${this.idx+1}`; this.container.appendChild(title);
+    const header = document.createElement('div'); header.className='player-header';
+    const tbox = document.createElement('div'); tbox.className='target-box'; tbox.innerHTML=`<div class="target-label">Cần tìm</div><div class="target-number" id="tP${this.idx}">${this.current}</div>`;
+    tbox.querySelector('.target-number').style.fontSize = this.targetFont + 'px';
+    header.appendChild(tbox);
+    const timerBox = document.createElement('div'); timerBox.style.textAlign='right'; timerBox.innerHTML = `<div style="font-size:12px;color:#666">Còn</div><div id="timerP${this.idx}" style="font-weight:700">${formatTimeSec(this.countdown)}</div><div style="font-size:12px;color:#666">Best: <span id="bestP${this.idx}">—</span></div>`;
+    header.appendChild(timerBox);
+    this.container.appendChild(header);
+
+    const grid = document.createElement('div'); grid.className='grid';
+    grid.style.gridTemplateColumns = `repeat(${this.n}, ${this.cellSize}px)`;
+    grid.style.gridTemplateRows = `repeat(${this.n}, ${this.cellSize}px)`;
+    grid.style.gap = '6px';
+    this.grid = grid;
+    this.container.appendChild(grid);
+
+    const meta = document.createElement('div'); meta.className='metrics'; meta.innerHTML=`Đã tìm: <span class="found">0</span> / ${this.n*this.n}`; this.container.appendChild(meta);
+    this.foundEl = meta.querySelector('.found');
+
+    this.populate();
+    const best = this.getBest(); if(best) this.container.querySelector('#bestP'+this.idx).textContent = formatTimeSec(best);
+  }
+  populate(){
+    const total = this.n*this.n;
+    const arr=[]; for(let i=1;i<=total;i++) arr.push(i); shuffle(arr);
+    for(let i=0;i<total;i++){
+      const v=arr[i];
+      const btn=document.createElement('button'); btn.className='cell'; btn.textContent=v; btn.dataset.value=v;
+      btn.style.width = this.cellSize + 'px';
+      btn.style.height = this.cellSize + 'px';
+      btn.style.fontSize = Math.max(10, Math.round(this.cellSize*0.42)) + 'px';
+      const bg = randomColor(); btn.style.background = bg; btn.style.color = contrastColor(bg);
+      btn.addEventListener('click', ()=> this.onClick(btn, v));
+      this.grid.appendChild(btn);
+    }
+  }
+  onClick(btn, v){
+    if(this.ended) return;
+    if(!this.started) this.start();
+    if(v === this.current){
+      btn.classList.add('disabled');
+      btn.style.outline = '3px solid rgba(0,0,0,0.06)';
+      this.current++;
+      this.foundEl.textContent = this.current-1;
+      this.updateTarget();
+      if(this.current > this.n*this.n) this.finishSuccess();
+    } else {
+      btn.animate([{transform:'scale(1)'},{transform:'scale(0.95)'},{transform:'scale(1)'}], {duration:120});
+    }
+  }
+  start(){
+    this.started=true; this.startTs = Date.now();
+    this.remaining = this.countdown;
+    this.interval = setInterval(()=>{
+      this.remaining = this.countdown - Math.floor((Date.now()-this.startTs)/1000);
+      if(this.remaining <= 0){ this.remaining=0; clearInterval(this.interval); this.endFail(); }
+      const el = this.container.querySelector('#timerP'+this.idx); if(el) el.textContent = formatTimeSec(this.remaining);
+    }, 300);
+  }
+  updateTarget(){ const el = this.container.querySelector('#tP'+this.idx); if(el) el.textContent = this.current <= this.n*this.n ? this.current : '—'; }
+  finishSuccess(){ this.ended=true; clearInterval(this.interval); const took = Math.floor((Date.now()-this.startTs)/1000); this.finish=took; const prev=this.getBest(); if(!prev || took<prev) localStorage.setItem(this.bestKey, String(took)); this.container.querySelector('#bestP'+this.idx).textContent = formatTimeSec(this.getBest()); }
+  endFail(){ this.ended=true; this.grid.querySelectorAll('.cell').forEach(c=>c.classList.add('disabled')); }
+  getBest(){ const v=localStorage.getItem(this.bestKey); return v?Number(v):null; }
+}
+
+/* Orchestration & layout */
 const levelSel = document.getElementById('level');
 const customNlabel = document.getElementById('customNlabel');
 const customN = document.getElementById('customN');
-const cellSizeInput = document.getElementById('cellSize');
-const cellFontInput = document.getElementById('cellFont');
+const playersInput = document.getElementById('players');
+const startBtn = document.getElementById('startBtn');
+const resetBtn = document.getElementById('resetBtn');
 const targetFontInput = document.getElementById('targetFont');
 const countdownInput = document.getElementById('countdown');
-const playersInput = document.getElementById('players');
+const gridsWrap = document.getElementById('gridsWrap');
 
-levelSel.addEventListener('change', ()=>{ if(levelSel.value==='custom') customNlabel.style.display='inline-block'; else customNlabel.style.display='none'; });
+levelSel.addEventListener('change', ()=> { customNlabel.style.display = levelSel.value==='custom' ? 'inline-block' : 'none'; });
 startBtn.addEventListener('click', ()=> startGame());
 resetBtn.addEventListener('click', ()=> resetAll());
+window.addEventListener('resize', ()=> { if(currentGames.length) relayout(currentGamesSettings); });
 
-let playersGames = [];
-let settingsGlobal = null;
-
-function buildPlayerAreas(count){
-  gridsWrap.innerHTML='';
-  const arr=[];
-  for(let i=0;i<count;i++){
-    const wrapper=document.createElement('div');
-    wrapper.className='player-area';
-    wrapper.style.flex='1 1 300px';
-    gridsWrap.appendChild(wrapper);
-    arr.push(wrapper);
-  }
-  return arr;
-}
+let currentGames = [];
+let currentGamesSettings = null;
 
 function startGame(){
   const level = levelSel.value;
-  let n;
-  if(level==='custom') n = Math.max(10, Math.floor(Number(customN.value)||10));
-  else if(level==='easy') n=5;
-  else if(level==='medium') n=7;
-  else n=10;
-  const cellSize = Math.max(24, Number(cellSizeInput.value)||60);
-  const cellFont = Math.max(10, Number(cellFontInput.value)||25);
-  const targetFont = Math.max(18, Number(targetFontInput.value)||65);
+  let n = (level==='easy')?5:(level==='medium')?7:(level==='hard')?10:Math.max(10, Math.floor(Number(customN.value)||12));
+  const players = Math.min(4, Math.max(1, Math.floor(Number(playersInput.value)||1)));
   const countdown = Math.max(10, Math.floor(Number(countdownInput.value)||600));
-  const playerCount = Math.min(4, Math.max(1, Math.floor(Number(playersInput.value)||1)));
-  settingsGlobal = {n, max: n*n, cellSize, cellFont, targetFont, countdown, playerCount};
-  document.documentElement.style.setProperty('--cell-size', cellSize+'px');
-  document.documentElement.style.setProperty('--cell-font', cellFont+'px');
-  document.documentElement.style.setProperty('--target-font', targetFont+'px');
+  const targetFont = Math.max(18, Number(targetFontInput.value)||65);
 
-  const areas = buildPlayerAreas(playerCount);
-  playersGames = [];
-  for(let i=0;i<playerCount;i++){
-    const pSettings = {n, max: n*n, cellSize, cellFont, targetFont, countdown};
-    const pg = new PlayerGame(i, pSettings, areas[i]);
-    playersGames.push(pg);
-  }
+  // compute optimal cell size
+  const cellSize = computeOptimalCellSize(n, players);
+
+  currentGamesSettings = {n, players, cellSize, countdown, targetFont};
+  buildPlayers(currentGamesSettings);
 }
 
-function resetAll(){ playersGames.forEach(pg=>pg.end(false)); playersGames=[]; gridsWrap.innerHTML=''; }
+function buildPlayers(cfg){
+  gridsWrap.innerHTML = '';
+  currentGames = [];
+  // arrange wrapper widths based on number of columns chosen by computeOptimalCellSize logic
+  // simple flex: each player-area gets flex-basis calc so they wrap
+  for(let i=0;i<cfg.players;i++){
+    const area = document.createElement('div'); area.className='player-area'; area.style.flex = `1 1 ${Math.max(220, Math.round(window.innerWidth/cfg.players)-24)}px`;
+    gridsWrap.appendChild(area);
+    const pg = new PlayerGame(i, cfg.n, cfg.cellSize, cfg.countdown, area, cfg.targetFont);
+    currentGames.push(pg);
+  }
+  // update CSS var cell size for consistency (affects target font variable)
+  document.documentElement.style.setProperty('--cell-size', cfg.cellSize + 'px');
+  document.documentElement.style.setProperty('--cell-font', Math.max(10, Math.round(cfg.cellSize*0.42)) + 'px');
+  document.documentElement.style.setProperty('--target-font', cfg.targetFont + 'px');
+}
 
-function updateGlobalUI(){ /* noop when per-player displays handle their own timers */ }
+function relayout(cfg){
+  if(!cfg) return;
+  const newCell = computeOptimalCellSize(cfg.n, cfg.players);
+  if(newCell === cfg.cellSize) return;
+  // rebuild with new cell size preserved other settings
+  currentGamesSettings.cellSize = newCell;
+  buildPlayers(currentGamesSettings);
+}
 
-/* auto-start */
+function resetAll(){
+  currentGames = [];
+  currentGamesSettings = null;
+  gridsWrap.innerHTML = '';
+}
+
+/* Auto-start with defaults */
 startGame();
 </script>
 </body>
