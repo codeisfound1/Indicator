@@ -1,6 +1,7 @@
 {
   "name": "grid-generator",
   "version": "1.0.0",
+  "type": "module",
   "description": "Multiplayer/random grid number-finding game",
   "main": "server.js",
   "scripts": {
