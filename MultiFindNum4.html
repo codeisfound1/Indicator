@@ -86,32 +86,78 @@ function contrastColor(c){ const tmp=document.createElement('div'); tmp.style.co
  - We determine column count = min(players, maxCols) where maxCols chosen so each column width >= minColWidth (200)
  - Use conservative gap.
 */
+/* Thay thế computeOptimalCellSize, relayout và startGame bằng phiên bản tối ưu cho landscape */
 function computeOptimalCellSize(n, players){
   const gap = 6;
   const vw = Math.max(window.innerWidth || 360, 360);
   const vh = Math.max(window.innerHeight || 600, 600);
-  // area reserved for controls at top (approx)
-  const controlsH = 160;
-  const availableH = Math.max(240, vh - controlsH - 48); // leave margin
-  // decide columns: try 1..players columns, choose layout that maximizes cellSize while keeping each column >= 240px
-  let best = {cellSize:24, cols:1};
-  for(let cols=1; cols<=players; cols++){
+  const controlsH = 140; // reserved top controls
+  const availableH = Math.max(200, vh - controlsH - 32);
+
+  const isLandscape = vw > vh;
+
+  // If landscape, prefer single row with cols = players
+  const candidateLayouts = [];
+  if(isLandscape){
+    candidateLayouts.push({cols: players});
+    if(players > 1) candidateLayouts.push({cols: Math.ceil(players/2)});
+  } else {
+    candidateLayouts.push({cols: Math.min(players, 2)});
+    candidateLayouts.push({cols: players});
+  }
+
+  let best = {cellSize:20, cols:1};
+  for(const layout of candidateLayouts){
+    const cols = layout.cols;
     const rows = Math.ceil(players/cols);
-    // column width available
-    const totalGapHorz = (cols-1)*16;
-    const colWidth = Math.floor((vw - totalGapHorz - 24) / cols); // 24 page padding
-    const perColAvailableH = Math.floor((availableH - (rows-1)*16) / rows);
-    // compute max cellSize fitting both width and height
-    const maxCellFromWidth = Math.floor((colWidth - (n-1)*gap) / n);
-    const maxCellFromHeight = Math.floor((perColAvailableH - (n-1)*gap) / n);
-    const cellSize = Math.max(20, Math.min(maxCellFromWidth, maxCellFromHeight));
-    // enforce reasonable max (120)
-    const finalCell = Math.min(120, cellSize);
-    if(finalCell > best.cellSize){
-      best = {cellSize: finalCell, cols};
+    const totalGapH = (cols-1)*16;
+    const colWidth = Math.floor((vw - totalGapH - 24) / cols);
+    const rowHeight = Math.floor((availableH - (rows-1)*16) / rows);
+
+    const maxCellW = Math.floor((colWidth - (n-1)*gap) / n);
+    const maxCellH = Math.floor((rowHeight - (n-1)*gap) / n);
+    let cellSize = Math.max(20, Math.min(maxCellW, maxCellH));
+    cellSize = Math.min(cellSize, 140); // upper cap
+
+    if(cellSize > best.cellSize){
+      best = {cellSize, cols};
     }
   }
+
+  if(best.cellSize <= 20 && isLandscape){
+    const rows = 1; const cols = players;
+    const rowHeight = availableH;
+    const maxCellH = Math.floor((rowHeight - (n-1)*gap) / n);
+    best.cellSize = Math.max(16, Math.min(120, maxCellH));
+    best.cols = cols;
+  }
+
   return best.cellSize;
+}
+
+function relayout(cfg){
+  if(!cfg) return;
+  const newCell = computeOptimalCellSize(cfg.n, cfg.players);
+  if(newCell === cfg.cellSize) return;
+  currentGamesSettings.cellSize = newCell;
+  buildPlayers(currentGamesSettings);
+}
+
+function startGame(){
+  const level = levelSel.value;
+  let n = (level==='easy')?5:(level==='medium')?7:(level==='hard')?10:Math.max(10, Math.floor(Number(customN.value)||12));
+  const players = Math.min(4, Math.max(1, Math.floor(Number(playersInput.value)||1)));
+  const countdown = Math.max(10, Math.floor(Number(countdownInput.value)||600));
+  const targetFont = Math.max(18, Number(targetFontInput.value)||65);
+
+  // compute optimal cell size with landscape-first behavior
+  const cellSize = computeOptimalCellSize(n, players);
+  currentGamesSettings = {n, players, cellSize, countdown, targetFont};
+  buildPlayers(currentGamesSettings);
+
+  // ensure grids-wrap won't overflow vertically: allow overflow-x but hide overflow-y
+  gridsWrap.style.overflowY = 'hidden';
+  gridsWrap.style.overflowX = 'auto';
 }
 
 /* Player game similar to prior but uses computed cell size */
