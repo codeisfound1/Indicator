@@ -1,14 +1,14 @@
 {
-  "name": "grid-generator-multiplayer",
+  "name": "grid-finder",
   "version": "1.0.0",
-  "description": "Multiplayer grid generator game with SVG grids and realtime features",
+  "description": "Grid Finder - SVG grid generator with realtime multiplayer",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "socket.io": "^4.7.1",
-    "shortid": "^2.2.16"
+    "socket.io": "^4.7.2",
+    "short-unique-id": "^5.1.5"
   }
 }
