@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Grid Generator SVG - Multi Player</title>
+<style>
+  :root{
+    --gap:8px;
+    --control-height:64px;
+    --default-cell-size:60; /* px */
+    --ui-font: "Helvetica Neue", Arial, sans-serif;
+  }
+  body{font-family:var(--ui-font);margin:0;padding:12px;background:#f4f6f8;color:#111}
+  .topbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  label{font-size:14px}
+  select,input[type=number]{padding:6px;border-radius:6px;border:1px solid #ccc}
+  button{padding:8px 12px;border-radius:6px;border:1px solid #888;background:#fff;cursor:pointer}
+  button.primary{background:#007bff;color:#fff;border-color:#007bff}
+  .players-area{display:grid;gap:12px;width:100%}
+  /* will set grid-template-columns dynamically */
+  .player-card{background:#fff;border-radius:8px;padding:10px;box-shadow:0 2px 6px rgba(0,0,0,0.08);display:flex;flex-direction:column;align-items:stretch}
+  .player-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .player-head .meta{display:flex;gap:8px;align-items:center}
+  .target-number{font-weight:700}
+  .timer{font-size:14px}
+  .svg-wrap{flex:1;display:flex;justify-content:center;align-items:center;padding:6px}
+  .grid-svg{background:transparent;display:block}
+  .footer-stats{display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  .small{font-size:13px;color:#444}
+  /* responsive adjustments */
+  @media (min-width:1200px){
+    .players-area.columns-1{grid-template-columns:1fr}
+    .players-area.columns-2{grid-template-columns:1fr 1fr}
+    .players-area.columns-3{grid-template-columns:1fr 1fr 1fr}
+    .players-area.columns-4{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:1199px){
+    .players-area.columns-1{grid-template-columns:1fr}
+    .players-area.columns-2{grid-template-columns:1fr 1fr}
+    .players-area.columns-3{grid-template-columns:1fr 1fr}
+    .players-area.columns-4{grid-template-columns:1fr 1fr}
+  }
+  /* small devices: stack */
+  @media (max-width:600px){
+    .players-area.columns-2,.players-area.columns-4,.players-area.columns-3{grid-template-columns:1fr}
+  }
+  /* input size override */
+  .size-control{width:84px}
+  .best-badge{background:#fffae6;padding:4px 8px;border-radius:6px;font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="controls">
+    <label>Level:
+      <select id="levelSelect">
+        <option value="easy">Dễ (5x5)</option>
+        <option value="medium">Trung bình (7x7)</option>
+        <option value="hard">Khó (10x10)</option>
+        <option value="custom">Siêu khó (nxn)</option>
+      </select>
+    </label>
+
+    <label id="customNLabel" style="display:none">n:
+      <input id="customN" type="number" min="10" value="12" class="size-control"/>
+    </label>
+
+    <label>Số người:
+      <select id="playersCount">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4" selected>4</option>
+      </select>
+    </label>
+
+    <label>Cell size (px):
+      <input id="cellSize" type="number" value="60" min="24" max="140" class="size-control"/>
+    </label>
+
+    <label>Font-size (cells):
+      <input id="cellFontSize" type="number" value="25" min="8" max="72" class="size-control"/>
+    </label>
+
+    <label>Target font-size:
+      <input id="targetFont" type="number" value="65" min="18" max="140" class="size-control"/>
+    </label>
+
+    <label>Countdown (s):
+      <input id="countdownInput" type="number" value="600" min="10" class="size-control"/>
+    </label>
+
+    <button id="startBtn" class="primary">Bắt đầu</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+</div>
+
+<div class="players-area columns-4" id="playersArea">
+  <!-- player cards generated here -->
+</div>
+
+<script>
+/* Utility helpers */
+const randInt = (min,max)=> Math.floor(Math.random()*(max-min+1))+min;
+const shuffle = (arr)=>{ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]] } return arr }
+
+/* Color utilities: create random color with good contrast for text */
+function randomColor(excludeHex){
+  // generate HSL color with adequate saturation/lightness
+  for(let i=0;i<20;i++){
+    const h = randInt(0,360);
+    const s = randInt(55,85);
+    const l = randInt(35,75);
+    const hex = hslToHex(h,s,l);
+    if(!excludeHex || hex.toLowerCase() !== excludeHex.toLowerCase()) return {hex, h,s,l};
+  }
+  return {hex: excludeHex||'#cccccc'};
+}
+function hslToHex(h,s,l){
+  s/=100; l/=100;
+  const k=(n)=> (n + h/30) % 12;
+  const a=s * Math.min(l,1-l);
+  const f=(n)=> {
+    const color = l - a * Math.max(-1, Math.min(k(n)-3, Math.min(9-k(n),1)));
+    return Math.round(255*color).toString(16).padStart(2,'0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+/* App state */
+const state = {
+  players: 1,
+  grids: [], // per player: {n, cells, svgEl, target, timer, remaining, best}
+  countdownDefault: 600,
+  running: false,
+  globalInterval: null,
+};
+
+/* DOM references */
+const playersArea = document.getElementById('playersArea');
+const levelSelect = document.getElementById('levelSelect');
+const customNLabel = document.getElementById('customNLabel');
+const customN = document.getElementById('customN');
+const playersCount = document.getElementById('playersCount');
+const cellSizeInput = document.getElementById('cellSize');
+const cellFontInput = document.getElementById('cellFontSize');
+const targetFontInput = document.getElementById('targetFont');
+const countdownInput = document.getElementById('countdownInput');
+const startBtn = document.getElementById('startBtn');
+const resetBtn = document.getElementById('resetBtn');
+
+/* Events */
+levelSelect.addEventListener('change', ()=>{
+  customNLabel.style.display = levelSelect.value==='custom' ? 'inline-block':'none';
+});
+playersCount.addEventListener('change', ()=> renderPlayersAreaLayout());
+startBtn.addEventListener('click', startGame);
+resetBtn.addEventListener('click', resetGame);
+
+/* layout */
+function renderPlayersAreaLayout(){
+  const p = parseInt(playersCount.value,10);
+  playersArea.className = `players-area columns-${p}`;
+  // create player cards
+  playersArea.innerHTML = '';
+  state.players = p;
+  state.grids = [];
+  for(let i=0;i<p;i++){
+    const card = document.createElement('div'); card.className='player-card'; card.dataset.player=i;
+    card.innerHTML = `
+      <div class="player-head">
+        <div class="meta"><strong>Player ${i+1}</strong></div>
+        <div class="meta">
+          <div class="timer small">Time: <span class="time-el">0:00</span></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div class="small">Số cần tìm: <span class="target-number" style="font-size:36px">-</span></div>
+        <div class="small best-badge">Best: <span class="best-time">--</span></div>
+      </div>
+      <div class="svg-wrap"><svg class="grid-svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+      <div class="footer-stats small">
+        <div class="progress">Found: <span class="found-count">0</span></div>
+        <div class="remaining">Remain: <span class="remain-count">0</span></div>
+      </div>
+    `;
+    playersArea.appendChild(card);
+    state.grids.push({card, n:0, cells:[], svg:null, target:1, found:0, remaining:0, time:0, timerInterval:null, best:null});
+  }
+}
+
+/* Build grid for a player */
+function buildGridFor(playerIndex){
+  const g = state.grids[playerIndex];
+  const cellSize = parseInt(cellSizeInput.value,10) || 60;
+  const cellFont = parseInt(cellFontInput.value,10) || 25;
+
+  // determine n from level
+  let n;
+  const level = levelSelect.value;
+  if(level==='easy') n=5;
+  else if(level==='medium') n=7;
+  else if(level==='hard') n=10;
+  else n = Math.max(10, parseInt(customN.value,10) || 10);
+  g.n = n;
+
+  // total count
+  const total = n*n;
+  g.total = total;
+
+  // generate numbers 1..total and shuffle
+  const numbers = shuffle(Array.from({length:total},(_,i)=>i+1));
+
+  // prepare SVG
+  const svg = g.card.querySelector('svg.grid-svg');
+  g.svg = svg;
+  // compute optimal cell size to fit container
+  const wrap = g.card.querySelector('.svg-wrap');
+  const wrapW = Math.max(160, wrap.clientWidth - 12);
+  const wrapH = Math.max(160, window.innerHeight*0.35);
+  // optimal scaling to fit both width and height
+  const maxCellByW = Math.floor((wrapW - 2) / n);
+  const maxCellByH = Math.floor((wrapH - 2) / n);
+  let useCell = Math.min(cellSize, maxCellByW, maxCellByH);
+  if(useCell < 24) useCell = Math.max(24, Math.floor(Math.min(maxCellByW, maxCellByH)));
+  const svgW = useCell * n;
+  const svgH = useCell * n;
+  svg.setAttribute('width', svgW);
+  svg.setAttribute('height', svgH);
+  svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+
+  // clear existing
+  svg.innerHTML = '';
+
+  // create defs for text styles optionally
+  const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+  svg.appendChild(defs);
+
+  // create cells as group of rect + text
+  g.cells = [];
+  let usedColors = new Set();
+  for(let r=0;r<n;r++){
+    for(let c=0;c<n;c++){
+      const idx = r*n + c;
+      const val = numbers[idx];
+      // choose background color not equal to text color (black) and not duplicate? requirement: mỗi ô có màu khác nhau - so ensure unique colors across grid
+      let colorObj;
+      let tries=0;
+      do{
+        colorObj = randomColor();
+        tries++;
+        // ensure uniqueness by hex
+      }while(usedColors.has(colorObj.hex) && tries<50);
+      usedColors.add(colorObj.hex);
+
+      const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      rect.setAttribute('x', c*useCell);
+      rect.setAttribute('y', r*useCell);
+      rect.setAttribute('width', useCell);
+      rect.setAttribute('height', useCell);
+      rect.setAttribute('fill', colorObj.hex);
+      rect.setAttribute('rx', Math.max(4, Math.floor(useCell*0.08)));
+      rect.setAttribute('stroke','#ddd');
+      rect.setAttribute('data-val', val);
+
+      const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
+      txt.setAttribute('x', c*useCell + useCell/2);
+      txt.setAttribute('y', r*useCell + useCell/2 + (cellFont*0.12));
+      txt.setAttribute('font-size', Math.max(8, cellFont));
+      txt.setAttribute('font-family', 'inherit');
+      txt.setAttribute('fill', '#000');
+      txt.setAttribute('text-anchor','middle');
+      txt.setAttribute('dominant-baseline','middle');
+      txt.setAttribute('pointer-events','none');
+      txt.textContent = val;
+
+      // group
+      const gEl = document.createElementNS('http://www.w3.org/2000/svg','g');
+      gEl.appendChild(rect);
+      gEl.appendChild(txt);
+      gEl.setAttribute('data-val', val);
+      gEl.style.cursor = 'pointer';
+
+      // click handler
+      gEl.addEventListener('click', ()=> onCellClick(playerIndex, val, gEl, rect, txt));
+
+      svg.appendChild(gEl);
+      g.cells.push({val, gEl, rect, txt});
+    }
+  }
+
+  // set initial stats
+  g.target = 1;
+  g.found = 0;
+  g.remaining = total;
+  g.time = 0;
+
+  // update UI
+  updatePlayerUI(playerIndex);
+}
+
+/* Handle click on a cell */
+function onCellClick(playerIndex, val, gEl, rect, txt){
+  const g = state.grids[playerIndex];
+  if(!state.running) return;
+  if(val !== g.target) {
+    // optional: brief shake or flash
+    rect.setAttribute('stroke','#ff4d4d');
+    setTimeout(()=> rect.setAttribute('stroke','#ddd'),200);
+    return;
+  }
+  // correct
+  g.found++;
+  g.target++;
+  g.remaining = g.total - g.found;
+  // mark as found visually: reduce opacity and strike-through
+  rect.setAttribute('opacity','0.6');
+  txt.setAttribute('fill','#fff');
+  rect.setAttribute('fill','#333'); // ensure contrast with text not identical
+  gEl.style.pointerEvents = 'none';
+  updatePlayerUI(playerIndex);
+  // check complete
+  if(g.found >= g.total){
+    // stop player's timer
+    stopPlayerTimer(playerIndex);
+    finalizePlayer(playerIndex);
+    // if all players done stop global
+    if(state.grids.every(x=> x.found===x.total)) stopGlobalTimer();
+  }
+}
+
+/* Update UI pieces for a player */
+function updatePlayerUI(playerIndex){
+  const g = state.grids[playerIndex];
+  const card = g.card;
+  card.querySelector('.target-number').textContent = g.target > g.total ? '-' : g.target;
+  card.querySelector('.found-count').textContent = g.found;
+  card.querySelector('.remain-count').textContent = g.remaining;
+  const timeEl = card.querySelector('.time-el');
+  timeEl.textContent = formatTime(g.time);
+  const best = g.best;
+  card.querySelector('.best-time').textContent = best ? formatTime(best) : '--';
+}
+
+/* timers */
+function startAllTimers(){
+  const startTs = Date.now();
+  // set countdown
+  state.globalRemaining = parseInt(countdownInput.value,10) || 600;
+  state.globalStartTs = startTs;
+  // per-player start
+  state.grids.forEach((g,i)=> startPlayerTimer(i));
+  // global interval to update all clocks and countdown
+  if(state.globalInterval) clearInterval(state.globalInterval);
+  state.globalInterval = setInterval(()=>{
+    // global countdown
+    state.globalRemaining = Math.max(0, state.globalRemaining - 1);
+    // if times run out: stop game
+    if(state.globalRemaining <= 0){
+      stopGlobalTimer();
+      // disable further clicks
+      state.running = false;
+      state.grids.forEach((gg)=>{
+        if(gg.svg) gg.svg.querySelectorAll('g').forEach(el=>el.style.pointerEvents='none');
+      });
+      alert('Time out!');
+    }
+    // update time per player display from their g.time values which are updated by timers
+    state.grids.forEach((g,i)=> updatePlayerUI(i));
+  }, 1000);
+}
+
+function stopGlobalTimer(){
+  if(state.globalInterval) { clearInterval(state.globalInterval); state.globalInterval=null; }
+}
+
+/* per-player timer increment */
+function startPlayerTimer(playerIndex){
+  const g = state.grids[playerIndex];
+  if(g.timerInterval) clearInterval(g.timerInterval);
+  g.timerInterval = setInterval(()=>{
+    g.time++;
+    const timeEl = g.card.querySelector('.time-el');
+    if(timeEl) timeEl.textContent = formatTime(g.time);
+  },1000);
+}
+
+function stopPlayerTimer(playerIndex){
+  const g = state.grids[playerIndex];
+  if(g.timerInterval){ clearInterval(g.timerInterval); g.timerInterval=null; }
+}
+
+/* finalize player when completed */
+function finalizePlayer(playerIndex){
+  const g = state.grids[playerIndex];
+  // store best in session (local variable)
+  if(!g.best || g.time < g.best) g.best = g.time;
+  updatePlayerUI(playerIndex);
+  // show completion highlight
+  const head = g.card.querySelector('.player-head .meta strong');
+  if(head) head.textContent = `Player ${playerIndex+1} - Done`;
+}
+
+/* format seconds to M:SS */
+function formatTime(sec){
+  const m = Math.floor(sec/60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+/* start game */
+function startGame(){
+  if(state.running){
+    // restart
+    resetGame();
+  }
+  // validate
+  if(levelSelect.value==='custom'){
+    const n = parseInt(customN.value,10);
+    if(isNaN(n) || n<10){ alert('Vui lòng nhập n >= 10'); return; }
+  }
+  // build grids
+  for(let i=0;i<state.players;i++){
+    buildGridFor(i);
+  }
+  // make runnable
+  state.running = true;
+  // enable pointer events (should be enabled already)
+  state.grids.forEach(g=> { if(g.svg) g.svg.querySelectorAll('g').forEach(el=>el.style.pointerEvents='auto') });
+  // reset times and start timers
+  state.grids.forEach(g=> { g.time = 0; g.found = 0; g.target = 1; g.remaining = g.total; g.best = g.best || null; updatePlayerUI(state.grids.indexOf(g)); });
+  startAllTimers();
+}
+
+/* reset game */
+function resetGame(){
+  stopGlobalTimer();
+  state.running = false;
+  state.grids.forEach((g,i)=>{
+    stopPlayerTimer(i);
+    // clear svg
+    if(g.svg) g.svg.innerHTML = '';
+    // reset UI
+    if(g.card){
+      g.card.querySelector('.target-number').textContent = '-';
+      g.card.querySelector('.found-count').textContent = '0';
+      g.card.querySelector('.remain-count').textContent = '0';
+      g.card.querySelector('.time-el').textContent = '0:00';
+    }
+    // preserve best times across session (do not clear g.best)
+    g.n = 0; g.cells = [];
+  });
+}
+
+/* initial render */
+renderPlayersAreaLayout();
+
+/* window resize: rebuild grids for fitting */
+let resizeTimeout;
+window.addEventListener('resize', ()=>{
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(()=>{
+    // rebuild only if running
+    if(state.running){
+      for(let i=0;i<state.players;i++) buildGridFor(i);
+    }
+  },250);
+});
+
+/* At end of response: related search terms invocation (SERP rule) */
+</script>
