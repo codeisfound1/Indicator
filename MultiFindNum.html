@@ -10,74 +10,93 @@
     --cell-font-size:25px;
     --target-font-size:65px;
   }
-  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:16px;color:#111;}
-  .controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
-  select,input[type="number"],button{padding:6px;border-radius:6px;border:1px solid #ccc;}
+  *{box-sizing:border-box}
+  body{font-family:system-ui,Segoe UI,Roboto,Arial,Helvetica,sans-serif;margin:12px;color:#111;background:#f6f7fb;}
+  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
+  select,input[type="number"],button{padding:8px;border-radius:8px;border:1px solid #d0d6e0;background:#fff;}
   button.primary{background:#2b8aef;color:#fff;border-color:#1976d2;}
+  button:active{transform:translateY(1px)}
   .layout{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;}
-  .player-area{border:1px solid #e0e0e0;border-radius:8px;padding:10px;background:#fafafa;min-width:260px;}
-  .player-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
-  .big-target{font-weight:700;font-size:var(--target-font-size);text-align:center;padding:6px;border-radius:6px;background:#fff;}
-  .info{font-size:14px;margin-top:8px;}
-  .grid-wrap{background:#fff;border-radius:6px;padding:8px;margin-top:8px;}
+  .player-area{border:1px solid #e0e6f0;border-radius:12px;padding:12px;background:#fff;min-width:260px;flex:1 1 300px;max-width:420px;}
+  .player-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap;}
+  .big-target{font-weight:700;font-size:var(--target-font-size);text-align:center;padding:8px;border-radius:8px;background:linear-gradient(180deg,#fff,#f7fbff);}
+  .info{font-size:14px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;}
+  .grid-wrap{background:#fff;border-radius:8px;padding:8px;margin-top:10px;overflow:auto;}
   svg{display:block;background:transparent;border-radius:6px;}
   .cell-text{pointer-events:none;dominant-baseline:central;text-anchor:middle;font-family:inherit;}
   .muted{color:#666;font-size:13px;}
   .player-footer{margin-top:8px;font-size:13px;color:#444;}
+  @media (max-width:900px){
+    .layout{flex-direction:column;}
+    .player-area{max-width:100%;}
+    .big-target{font-size:48px}
+  }
+  @media (max-width:420px){
+    :root{--target-font-size:42px}
+    .controls{gap:6px}
+    .controls label{display:none}
+  }
 </style>
 </head>
 <body>
 
 <div class="controls">
   <label for="difficulty">Cấp độ:</label>
-  <select id="difficulty">
+  <select id="difficulty" aria-label="Cấp độ">
     <option value="easy">Dễ — 5x5 (1–25)</option>
     <option value="medium">Trung bình — 7x7 (1–49)</option>
     <option value="hard">Khó — 10x10 (1–100)</option>
   </select>
 
   <label for="players">Người chơi:</label>
-  <select id="players">
+  <select id="players" aria-label="Số người">
     <option value="1">1</option>
     <option value="2">2</option>
     <option value="3">3</option>
   </select>
 
   <label for="countdown">Countdown (s):</label>
-  <input id="countdown" type="number" min="10" value="120" style="width:90px;">
+  <input id="countdown" type="number" min="10" value="600" style="width:96px;" aria-label="Countdown">
 
   <button id="startBtn" class="primary">Bắt đầu</button>
   <button id="resetBtn">Reset</button>
 
-  <div style="margin-left:12px;">
+  <div style="margin-left:6px;display:flex;gap:8px;align-items:center;">
     Font ô:
-    <input id="cellFont" type="number" value="25" min="8" style="width:70px;">px
+    <input id="cellFont" type="number" value="25" min="8" style="width:70px;" aria-label="Font ô">px
     Target:
-    <input id="targetFont" type="number" value="65" min="16" style="width:70px;">px
+    <input id="targetFont" type="number" value="65" min="16" style="width:70px;" aria-label="Target font">px
   </div>
 </div>
 
-<div id="playersContainer" class="layout">
+<div id="playersContainer" class="layout" aria-live="polite">
   <!-- Player areas injected here -->
 </div>
 
 <script>
-/* Configuration */
+/* === Config & Helpers === */
 const SIZES = {
   easy:{n:5,max:25},
   medium:{n:7,max:49},
   hard:{n:10,max:100}
 };
-let config = {
-  cellSize:60,
-  cellFont:25,
-  targetFont:65
-};
+let config = { cellSize:60, cellFont:25, targetFont:65 };
 
-/* State for multiple players: array of player objects */
-let playersState = []; // each: {id, name, gridN, maxNumber, numbers[], colors[], nextNumber, countdown, timerId, started, startTs, finishTime, score, bestKey}
+function randInt(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+function shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]] } return arr; }
+function secToMMSS(s){ if(s<0) s=0; const m=Math.floor(s/60), sec=s%60; return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0'); }
+function nowSec(){ return Math.floor(Date.now()/1000); }
 
-/* DOM refs */
+/* Color helpers */
+function hslToHex(h,s,l){ s/=100; l/=100; const k = n => (n + h/30) % 12; const a = s * Math.min(l,1-l); const f = n => { const val = l - a * Math.max(-1, Math.min(k(n)-3, Math.min(9-k(n),1))); return Math.round(255*val).toString(16).padStart(2,'0'); }; return `#${f(0)}${f(8)}${f(4)}`; }
+function randomDistinctColor(exclude){ for(let t=0;t<60;t++){ const h=randInt(0,359), s=randInt(60,85), l=randInt(30,70); const hex=hslToHex(h,s,l); if(!exclude.has(hex)) return hex; } return '#cccccc'; }
+function hexToRgb(hex){ const h=hex.replace('#',''); if(h.length===3) return {r:parseInt(h[0]+h[0],16), g:parseInt(h[1]+h[1],16), b:parseInt(h[2]+h[2],16)}; if(h.length===6) return {r:parseInt(h.slice(0,2),16), g:parseInt(h.slice(2,4),16), b:parseInt(h.slice(4,6),16)}; return null; }
+function pickTextColor(bg){ const rgb=hexToRgb(bg); if(!rgb) return '#000'; const lum=(0.299*rgb.r+0.587*rgb.g+0.114*rgb.b)/255; return lum>0.6? '#000':'#fff'; }
+
+/* === Players state (array) === */
+let playersState = []; // each: {id,name,gridN,maxNumber,numbers,colors,nextNumber,countdown,timerId,started,startTs,finishTime,score,bestKey}
+
+/* === DOM refs === */
 const difficultyEl = document.getElementById('difficulty');
 const playersEl = document.getElementById('players');
 const countdownEl = document.getElementById('countdown');
@@ -87,24 +106,12 @@ const playersContainer = document.getElementById('playersContainer');
 const cellFontInput = document.getElementById('cellFont');
 const targetFontInput = document.getElementById('targetFont');
 
-/* Helpers */
-function randInt(a,b){return Math.floor(Math.random()*(b-a+1))+a;}
-function shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;}
-function secToMMSS(s){if(s<0)s=0;const m=Math.floor(s/60), sec=s%60;return String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');}
-function nowSec(){return Math.floor(Date.now()/1000);}
-
-/* Color helpers (same as previous) */
-function hslToHex(h,s,l){s/=100;l/=100;const k=n=> (n+h/30)%12; const a=s*Math.min(l,1-l); const f=n=>{const val = l - a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1))); return Math.round(255*val).toString(16).padStart(2,'0');}; return `#${f(0)}${f(8)}${f(4)}`;}
-function randomDistinctColor(exclude){ for(let t=0;t<40;t++){const h=randInt(0,359), s=randInt(60,85), l=randInt(35,65); const hex=hslToHex(h,s,l); if(!exclude.has(hex)) return hex;} return '#cccccc';}
-function hexToRgb(hex){const h=hex.replace('#',''); if(h.length===3) return {r:parseInt(h[0]+h[0],16),g:parseInt(h[1]+h[1],16),b:parseInt(h[2]+h[2],16)}; if(h.length===6) return {r:parseInt(h.slice(0,2),16),g:parseInt(h.slice(2,4),16),b:parseInt(h.slice(4,6),16)}; return null;}
-function pickTextColor(bg){const rgb=hexToRgb(bg); if(!rgb) return '#000'; const lum=(0.299*rgb.r+0.587*rgb.g+0.114*rgb.b)/255; return lum>0.6? '#000':'#fff';}
-
-/* Build playersState for n players */
+/* === Init helpers === */
 function initPlayers(){
-  const numPlayers = parseInt(playersEl.value) || 1;
-  playersState = [];
+  const num = parseInt(playersEl.value) || 1;
   const diff = difficultyEl.value;
-  for(let i=0;i<numPlayers;i++){
+  playersState = [];
+  for(let i=0;i<num;i++){
     const id = i+1;
     const p = {
       id,
@@ -113,26 +120,24 @@ function initPlayers(){
       maxNumber: SIZES[diff].max,
       numbers: [],
       colors: [],
-      nextNumber:1,
-      countdown: parseInt(countdownEl.value) || 120,
+      nextNumber: 1,
+      countdown: parseInt(countdownEl.value) || 600,
       timerId: null,
-      started:false,
-      startTs:null,
-      finishTime:null,
-      score:0,
+      started: false,
+      startTs: null,
+      finishTime: null,
+      score: 0,
       bestKey: `grid_best_p${id}_${SIZES[diff].n}`
     };
     playersState.push(p);
   }
 }
 
-/* Generate grid data for a player */
 function generateForPlayer(p){
   const total = p.gridN * p.gridN;
-  const nums = Array.from({length:p.maxNumber},(_,i)=>i+1);
+  const nums = Array.from({length: p.maxNumber}, (_,i)=>i+1);
   shuffle(nums);
-  p.numbers = nums.slice(0,total);
-  // colors
+  p.numbers = nums.slice(0, total);
   const used = new Set();
   p.colors = [];
   for(let i=0;i<total;i++){
@@ -142,11 +147,11 @@ function generateForPlayer(p){
   }
 }
 
-/* Render all player areas */
-function renderPlayers(){
+/* === Rendering === */
+function renderAllPlayers(){
   playersContainer.innerHTML = '';
   playersState.forEach(p=>{
-    const area = document.createElement('div');
+    const area = document.createElement('section');
     area.className = 'player-area';
     area.id = `playerArea_${p.id}`;
     area.innerHTML = `
@@ -155,33 +160,31 @@ function renderPlayers(){
         <div class="muted">Time left: <span id="time_${p.id}">${secToMMSS(p.countdown)}</span></div>
       </div>
       <div class="big-target" id="target_${p.id}">${p.nextNumber}</div>
-      <div class="info">Điểm: <strong id="score_${p.id}">${p.score}</strong></div>
-      <div class="grid-wrap" id="gridwrap_${p.id}"></div>
+      <div class="info"><div>Điểm: <strong id="score_${p.id}">${p.score}</strong></div><div class="muted">Range: 1−${p.maxNumber}</div></div>
+      <div class="grid-wrap" id="gridwrap_${p.id}" aria-label="Grid người chơi ${p.id}"></div>
       <div class="player-footer muted">Best (session): <span id="best_${p.id}">—</span></div>
     `;
     playersContainer.appendChild(area);
     renderGridForPlayer(p);
-    // set best from sessionStorage
     const b = sessionStorage.getItem(p.bestKey);
     if(b) document.getElementById(`best_${p.id}`).textContent = b;
   });
-  // apply font sizes
   document.documentElement.style.setProperty('--target-font-size', config.targetFont+'px');
 }
 
-/* Render single player's svg grid */
 function renderGridForPlayer(p){
   const wrap = document.getElementById(`gridwrap_${p.id}`);
+  if(!wrap) return;
   wrap.innerHTML = '';
   const n = p.gridN;
   const cell = config.cellSize;
-  const width = n*cell;
+  const width = n * cell;
   const xmlns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(xmlns,'svg');
   svg.setAttribute('width', width);
   svg.setAttribute('height', width);
   svg.setAttribute('viewBox', `0 0 ${width} ${width}`);
-  // cells
+  svg.setAttribute('role','grid');
   for(let r=0;r<n;r++){
     for(let c=0;c<n;c++){
       const idx = r*n + c;
@@ -192,33 +195,33 @@ function renderGridForPlayer(p){
       const rect = document.createElementNS(xmlns,'rect');
       rect.setAttribute('x',0); rect.setAttribute('y',0);
       rect.setAttribute('width',cell); rect.setAttribute('height',cell);
-      rect.setAttribute('rx','6'); rect.setAttribute('ry','6');
-      const bg = p.colors[idx] || '#eee';
-      rect.setAttribute('fill', bg);
-      rect.style.cursor='pointer';
+      rect.setAttribute('rx','8'); rect.setAttribute('ry','8');
+      rect.setAttribute('fill', p.colors[idx] || '#eee');
+      rect.style.cursor = 'pointer';
+      rect.setAttribute('tabindex',0);
       const text = document.createElementNS(xmlns,'text');
       text.classList.add('cell-text');
       text.setAttribute('x', cell/2);
       text.setAttribute('y', cell/2 + 2);
-      text.setAttribute('fill', pickTextColor(bg));
+      text.setAttribute('fill', pickTextColor(p.colors[idx] || '#eee'));
       text.setAttribute('font-size', config.cellFont);
       text.textContent = p.numbers[idx];
-      rect.addEventListener('click', ()=> onCellClickPlayer(p.id, idx, rect, text));
-      text.addEventListener('click', ()=> onCellClickPlayer(p.id, idx, rect, text));
-      g.appendChild(rect); g.appendChild(text);
+      rect.addEventListener('click', ()=> handleCellClick(p.id, idx, rect, text));
+      rect.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' ') { e.preventDefault(); handleCellClick(p.id, idx, rect, text); } });
+      g.appendChild(rect);
+      g.appendChild(text);
       svg.appendChild(g);
     }
   }
   wrap.appendChild(svg);
 }
 
-/* Click handling per player */
-function onCellClickPlayer(playerId, idx, rectEl, textEl){
+/* === Click logic per player === */
+function handleCellClick(playerId, idx, rectEl, textEl){
   const p = playersState.find(x=>x.id===playerId);
   if(!p || !p.started) return;
   const clicked = p.numbers[idx];
   if(clicked !== p.nextNumber){
-    // flash wrong
     rectEl.setAttribute('stroke','#ff5252'); rectEl.setAttribute('stroke-width','3');
     setTimeout(()=>{ rectEl.setAttribute('stroke','none'); rectEl.setAttribute('stroke-width','0'); },300);
     return;
@@ -230,79 +233,91 @@ function onCellClickPlayer(playerId, idx, rectEl, textEl){
   rectEl.style.pointerEvents = 'none';
   p.nextNumber++;
   p.score++;
-  // update HUD for that player
-  document.getElementById(`target_${p.id}`).textContent = p.nextNumber <= p.maxNumber ? p.nextNumber : 'Hoàn thành';
-  document.getElementById(`score_${p.id}`).textContent = p.score;
-  // check finish for that player
+  // update UI
+  const targetEl = document.getElementById(`target_${p.id}`);
+  const scoreEl = document.getElementById(`score_${p.id}`);
+  if(targetEl) targetEl.textContent = p.nextNumber <= p.maxNumber ? p.nextNumber : 'Hoàn thành';
+  if(scoreEl) scoreEl.textContent = p.score;
+  // finish check
   if(p.nextNumber > p.maxNumber){
     stopPlayerTimer(p);
     p.finishTime = nowSec() - p.startTs;
-    document.getElementById(`target_${p.id}`).textContent = 'Hoàn thành';
-    // store best
+    if(targetEl) targetEl.textContent = 'Hoàn thành';
     const prev = sessionStorage.getItem(p.bestKey);
     if(!prev || p.finishTime < parseInt(prev,10)){
       sessionStorage.setItem(p.bestKey, String(p.finishTime));
-      document.getElementById(`best_${p.id}`).textContent = String(p.finishTime);
+      const be = document.getElementById(`best_${p.id}`);
+      if(be) be.textContent = String(p.finishTime);
     }
   }
 }
 
-/* Timers per player */
+/* === Timers === */
 function startAllTimers(){
   playersState.forEach(p=>{
-    p.countdown = parseInt(countdownEl.value) || 120;
+    // clear existing to avoid duplicates
+    if(p.timerId){ clearInterval(p.timerId); p.timerId = null; }
+    p.countdown = parseInt(countdownEl.value) || 600;
     p.started = true;
     p.startTs = nowSec();
-    // update display immediately
+    // update immediate UI
     const timeEl = document.getElementById(`time_${p.id}`);
-    timeEl.textContent = secToMMSS(p.countdown);
-    // clear previous if any
-    if(p.timerId) clearInterval(p.timerId);
+    if(timeEl) timeEl.textContent = secToMMSS(p.countdown);
+    // start interval
     p.timerId = setInterval(()=>{
       p.countdown--;
       const te = document.getElementById(`time_${p.id}`);
       if(te) te.textContent = secToMMSS(p.countdown);
-      if(p.countdown<=0){
+      if(p.countdown <= 0){
         clearInterval(p.timerId);
         p.timerId = null;
         p.started = false;
-        document.getElementById(`target_${p.id}`).textContent = 'Hết giờ';
+        const targ = document.getElementById(`target_${p.id}`);
+        if(targ) targ.textContent = 'Hết giờ';
       }
     },1000);
   });
 }
+
+function stopAllTimers(){
+  playersState.forEach(p=>{
+    if(p.timerId){ clearInterval(p.timerId); p.timerId = null; }
+    p.started = false;
+  });
+}
 function stopPlayerTimer(p){
-  if(p.timerId){ clearInterval(p.timerId); p.timerId=null; }
-  p.started=false;
+  if(p.timerId){ clearInterval(p.timerId); p.timerId = null; }
+  p.started = false;
 }
 
-/* Start & reset handlers */
-startBtn.addEventListener('click',()=>{
-  // apply fonts
+/* === Start / Reset handlers === */
+startBtn.addEventListener('click', ()=>{
+  // apply font config
   config.cellFont = parseInt(cellFontInput.value) || 25;
   config.targetFont = parseInt(targetFontInput.value) || 65;
-  document.documentElement.style.setProperty('--target-font-size', config.targetFont+'px');
-
+  document.documentElement.style.setProperty('--target-font-size', config.targetFont + 'px');
+  // init players and grids
   initPlayers();
   playersState.forEach(p => generateForPlayer(p));
-  renderPlayers();
-  // reset scores/next numbers
-  playersState.forEach(p=>{ p.nextNumber=1; p.score=0; p.finishTime=null; });
+  // reset per-player counters
+  playersState.forEach(p => { p.nextNumber = 1; p.score = 0; p.finishTime = null; });
+  renderAllPlayers();
+  // start timers
   startAllTimers();
 });
-resetBtn.addEventListener('click',()=>{
-  // stop all timers and clear UI
-  playersState.forEach(p=>{ if(p.timerId) clearInterval(p.timerId); });
+
+resetBtn.addEventListener('click', ()=>{
+  stopAllTimers();
   playersState = [];
   playersContainer.innerHTML = '';
 });
 
-/* Initial small demo render for single player placeholder */
-(function initial(){
-  config.cellFont = parseInt(cellFontInput.value)||25;
-  config.targetFont = parseInt(targetFontInput.value)||65;
-})();
-</script>
+/* Clean up timers when page hidden/unloaded to avoid phantom intervals */
+window.addEventListener('beforeunload', ()=> stopAllTimers());
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'hidden'){ stopAllTimers(); }
+});
 
+</script>
 </body>
 </html>
