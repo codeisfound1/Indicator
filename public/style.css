@@ -20,8 +20,9 @@ button{cursor:pointer}
 .cellText{dominant-baseline:central;text-anchor:middle;pointer-events:none}
 #controls{margin-top:8px;display:flex;gap:8px}
 #chatArea{margin-top:12px;background:#071022;padding:8px;border-radius:8px}
-#chatLog{max-height:200px;overflow:auto}
-.playerBadge{display:inline-block;padding:6px;border-radius:6px;background:#071a24}
+#chatLog{max-height:200px;overflow:auto;padding:6px}
+.chatMsg{margin-bottom:6px}
+.playerBadge{display:inline-block;padding:6px;border-radius:6px;background:#071a24;margin-right:6px}
 @media(max-width:600px){
   #topBar{flex-direction:column;align-items:flex-start}
   #target span{font-size:44px!important}
