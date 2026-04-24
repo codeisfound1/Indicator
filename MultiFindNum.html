@@ -13,6 +13,7 @@
   *{box-sizing:border-box}
   body{font-family:system-ui,Segoe UI,Roboto,Arial,Helvetica,sans-serif;margin:12px;color:#111;background:#f6f7fb;}
   .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
+  label{font-size:14px}
   select,input[type="number"],button{padding:8px;border-radius:8px;border:1px solid #d0d6e0;background:#fff;}
   button.primary{background:#2b8aef;color:#fff;border-color:#1976d2;}
   button:active{transform:translateY(1px)}
@@ -40,7 +41,7 @@
 </head>
 <body>
 
-<div class="controls">
+<div class="controls" role="region" aria-label="Controls">
   <label for="difficulty">Cấp độ:</label>
   <select id="difficulty" aria-label="Cấp độ">
     <option value="easy">Dễ — 5x5 (1–25)</option>
@@ -57,6 +58,9 @@
 
   <label for="countdown">Countdown (s):</label>
   <input id="countdown" type="number" min="10" value="600" style="width:96px;" aria-label="Countdown">
+
+  <label for="cellSize">Kích ô (px):</label>
+  <input id="cellSize" type="number" min="20" value="60" style="width:80px;" aria-label="Kích thước ô">
 
   <button id="startBtn" class="primary">Bắt đầu</button>
   <button id="resetBtn">Reset</button>
@@ -105,6 +109,7 @@ const resetBtn = document.getElementById('resetBtn');
 const playersContainer = document.getElementById('playersContainer');
 const cellFontInput = document.getElementById('cellFont');
 const targetFontInput = document.getElementById('targetFont');
+const cellSizeInput = document.getElementById('cellSize');
 
 /* === Init helpers === */
 function initPlayers(){
@@ -169,7 +174,7 @@ function renderAllPlayers(){
     const b = sessionStorage.getItem(p.bestKey);
     if(b) document.getElementById(`best_${p.id}`).textContent = b;
   });
-  document.documentElement.style.setProperty('--target-font-size', config.targetFont+'px');
+  document.documentElement.style.setProperty('--target-font-size', config.targetFont + 'px');
 }
 
 function renderGridForPlayer(p){
@@ -226,19 +231,16 @@ function handleCellClick(playerId, idx, rectEl, textEl){
     setTimeout(()=>{ rectEl.setAttribute('stroke','none'); rectEl.setAttribute('stroke-width','0'); },300);
     return;
   }
-  // correct
   rectEl.setAttribute('opacity','0.45');
   textEl.setAttribute('text-decoration','line-through');
   textEl.setAttribute('fill','#666');
   rectEl.style.pointerEvents = 'none';
   p.nextNumber++;
   p.score++;
-  // update UI
   const targetEl = document.getElementById(`target_${p.id}`);
   const scoreEl = document.getElementById(`score_${p.id}`);
   if(targetEl) targetEl.textContent = p.nextNumber <= p.maxNumber ? p.nextNumber : 'Hoàn thành';
   if(scoreEl) scoreEl.textContent = p.score;
-  // finish check
   if(p.nextNumber > p.maxNumber){
     stopPlayerTimer(p);
     p.finishTime = nowSec() - p.startTs;
@@ -255,15 +257,12 @@ function handleCellClick(playerId, idx, rectEl, textEl){
 /* === Timers === */
 function startAllTimers(){
   playersState.forEach(p=>{
-    // clear existing to avoid duplicates
     if(p.timerId){ clearInterval(p.timerId); p.timerId = null; }
     p.countdown = parseInt(countdownEl.value) || 600;
     p.started = true;
     p.startTs = nowSec();
-    // update immediate UI
     const timeEl = document.getElementById(`time_${p.id}`);
     if(timeEl) timeEl.textContent = secToMMSS(p.countdown);
-    // start interval
     p.timerId = setInterval(()=>{
       p.countdown--;
       const te = document.getElementById(`time_${p.id}`);
@@ -292,17 +291,16 @@ function stopPlayerTimer(p){
 
 /* === Start / Reset handlers === */
 startBtn.addEventListener('click', ()=>{
-  // apply font config
+  // apply font & cell size config
   config.cellFont = parseInt(cellFontInput.value) || 25;
   config.targetFont = parseInt(targetFontInput.value) || 65;
+  config.cellSize = parseInt(cellSizeInput.value) || 60;
   document.documentElement.style.setProperty('--target-font-size', config.targetFont + 'px');
-  // init players and grids
+
   initPlayers();
   playersState.forEach(p => generateForPlayer(p));
-  // reset per-player counters
   playersState.forEach(p => { p.nextNumber = 1; p.score = 0; p.finishTime = null; });
   renderAllPlayers();
-  // start timers
   startAllTimers();
 });
 
@@ -312,12 +310,37 @@ resetBtn.addEventListener('click', ()=>{
   playersContainer.innerHTML = '';
 });
 
-/* Clean up timers when page hidden/unloaded to avoid phantom intervals */
+/* Live update cell size while grids exist */
+cellSizeInput.addEventListener('change', ()=>{
+  config.cellSize = parseInt(cellSizeInput.value) || 60;
+  playersState.forEach(p => {
+    const wrap = document.getElementById(`gridwrap_${p.id}`);
+    if(wrap) renderGridForPlayer(p);
+  });
+});
+
+/* Live update fonts */
+cellFontInput.addEventListener('change', ()=>{
+  config.cellFont = parseInt(cellFontInput.value) || 25;
+  playersState.forEach(p => {
+    const wrap = document.getElementById(`gridwrap_${p.id}`);
+    if(wrap) renderGridForPlayer(p);
+  });
+});
+targetFontInput.addEventListener('change', ()=>{
+  config.targetFont = parseInt(targetFontInput.value) || 65;
+  document.documentElement.style.setProperty('--target-font-size', config.targetFont + 'px');
+  playersState.forEach(p => {
+    const t = document.getElementById(`target_${p.id}`);
+    if(t) t.style.fontSize = config.targetFont + 'px';
+  });
+});
+
+/* Clean up timers on unload/visibility change */
 window.addEventListener('beforeunload', ()=> stopAllTimers());
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState === 'hidden'){ stopAllTimers(); }
 });
-
 </script>
 </body>
 </html>
