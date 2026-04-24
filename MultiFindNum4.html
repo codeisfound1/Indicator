@@ -71,32 +71,22 @@
 <div class="grids-wrap" id="gridsWrap"></div>
 
 <script>
-/* Helpers */
+/* ---------- Helpers ---------- */
 function formatTimeSec(s){ if(s<0)s=0; const mm=Math.floor(s/60).toString().padStart(2,'0'); const ss=Math.floor(s%60).toString().padStart(2,'0'); return `${mm}:${ss}`; }
 function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
 function randomColor(){ const h=Math.floor(Math.random()*360), s=60+Math.floor(Math.random()*30), l=45+Math.floor(Math.random()*10); return `hsl(${h} ${s}% ${l}%)`; }
 function contrastColor(c){ const tmp=document.createElement('div'); tmp.style.color=c; document.body.appendChild(tmp); const cs=getComputedStyle(tmp).color; document.body.removeChild(tmp); const p=cs.match(/\d+/g); if(!p) return '#000'; const r=+p[0],g=+p[1],b=+p[2]; const bright=(r*299+g*587+b*114)/1000; return bright>150? '#000':'#fff'; }
 
-/* Auto-sizing logic:
- - Compute available width and height for grids-wrap.
- - For each player, compute maximum cell size such that:
-    gridWidth = n * (cellSize) + (n-1)*gap  <= columnWidth
-    gridHeight = n * (cellSize) + (n-1)*gap <= availableHeightPerColumn (we use viewport height minus controls)
- - Columns layout: try to place players in rows/columns to fit: prefer 1 row up to 1200px, otherwise wrap.
- - We determine column count = min(players, maxCols) where maxCols chosen so each column width >= minColWidth (200)
- - Use conservative gap.
-*/
-/* Thay thế computeOptimalCellSize, relayout và startGame bằng phiên bản tối ưu cho landscape */
+/* ---------- Auto-sizing logic (landscape-aware) ---------- */
 function computeOptimalCellSize(n, players){
   const gap = 6;
   const vw = Math.max(window.innerWidth || 360, 360);
   const vh = Math.max(window.innerHeight || 600, 600);
-  const controlsH = 140; // reserved top controls
+  const controlsH = 140;
   const availableH = Math.max(200, vh - controlsH - 32);
 
   const isLandscape = vw > vh;
 
-  // If landscape, prefer single row with cols = players
   const candidateLayouts = [];
   if(isLandscape){
     candidateLayouts.push({cols: players});
@@ -117,7 +107,7 @@ function computeOptimalCellSize(n, players){
     const maxCellW = Math.floor((colWidth - (n-1)*gap) / n);
     const maxCellH = Math.floor((rowHeight - (n-1)*gap) / n);
     let cellSize = Math.max(20, Math.min(maxCellW, maxCellH));
-    cellSize = Math.min(cellSize, 140); // upper cap
+    cellSize = Math.min(cellSize, 140);
 
     if(cellSize > best.cellSize){
       best = {cellSize, cols};
@@ -135,32 +125,7 @@ function computeOptimalCellSize(n, players){
   return best.cellSize;
 }
 
-function relayout(cfg){
-  if(!cfg) return;
-  const newCell = computeOptimalCellSize(cfg.n, cfg.players);
-  if(newCell === cfg.cellSize) return;
-  currentGamesSettings.cellSize = newCell;
-  buildPlayers(currentGamesSettings);
-}
-
-function startGame(){
-  const level = levelSel.value;
-  let n = (level==='easy')?5:(level==='medium')?7:(level==='hard')?10:Math.max(10, Math.floor(Number(customN.value)||12));
-  const players = Math.min(4, Math.max(1, Math.floor(Number(playersInput.value)||1)));
-  const countdown = Math.max(10, Math.floor(Number(countdownInput.value)||600));
-  const targetFont = Math.max(18, Number(targetFontInput.value)||65);
-
-  // compute optimal cell size with landscape-first behavior
-  const cellSize = computeOptimalCellSize(n, players);
-  currentGamesSettings = {n, players, cellSize, countdown, targetFont};
-  buildPlayers(currentGamesSettings);
-
-  // ensure grids-wrap won't overflow vertically: allow overflow-x but hide overflow-y
-  gridsWrap.style.overflowY = 'hidden';
-  gridsWrap.style.overflowX = 'auto';
-}
-
-/* Player game similar to prior but uses computed cell size */
+/* ---------- PlayerGame class ---------- */
 class PlayerGame {
   constructor(idx, n, cellSize, countdown, container, targetFont){
     this.idx=idx; this.n=n; this.cellSize=cellSize; this.countdown=countdown; this.container=container; this.targetFont=targetFont;
@@ -235,7 +200,7 @@ class PlayerGame {
   getBest(){ const v=localStorage.getItem(this.bestKey); return v?Number(v):null; }
 }
 
-/* Orchestration & layout */
+/* ---------- Orchestration & Layout ---------- */
 const levelSel = document.getElementById('level');
 const customNlabel = document.getElementById('customNlabel');
 const customN = document.getElementById('customN');
@@ -261,25 +226,26 @@ function startGame(){
   const countdown = Math.max(10, Math.floor(Number(countdownInput.value)||600));
   const targetFont = Math.max(18, Number(targetFontInput.value)||65);
 
-  // compute optimal cell size
   const cellSize = computeOptimalCellSize(n, players);
-
   currentGamesSettings = {n, players, cellSize, countdown, targetFont};
   buildPlayers(currentGamesSettings);
+
+  gridsWrap.style.overflowY = 'hidden';
+  gridsWrap.style.overflowX = 'auto';
 }
 
 function buildPlayers(cfg){
   gridsWrap.innerHTML = '';
   currentGames = [];
-  // arrange wrapper widths based on number of columns chosen by computeOptimalCellSize logic
-  // simple flex: each player-area gets flex-basis calc so they wrap
   for(let i=0;i<cfg.players;i++){
-    const area = document.createElement('div'); area.className='player-area'; area.style.flex = `1 1 ${Math.max(220, Math.round(window.innerWidth/cfg.players)-24)}px`;
+    const area = document.createElement('div'); area.className='player-area';
+    // flex-basis to help layout; allow wrapping if needed
+    const flexBasis = Math.max(220, Math.round((window.innerWidth - (cfg.players-1)*16 - 24)/cfg.players));
+    area.style.flex = `1 1 ${flexBasis}px`;
     gridsWrap.appendChild(area);
     const pg = new PlayerGame(i, cfg.n, cfg.cellSize, cfg.countdown, area, cfg.targetFont);
     currentGames.push(pg);
   }
-  // update CSS var cell size for consistency (affects target font variable)
   document.documentElement.style.setProperty('--cell-size', cfg.cellSize + 'px');
   document.documentElement.style.setProperty('--cell-font', Math.max(10, Math.round(cfg.cellSize*0.42)) + 'px');
   document.documentElement.style.setProperty('--target-font', cfg.targetFont + 'px');
@@ -289,7 +255,6 @@ function relayout(cfg){
   if(!cfg) return;
   const newCell = computeOptimalCellSize(cfg.n, cfg.players);
   if(newCell === cfg.cellSize) return;
-  // rebuild with new cell size preserved other settings
   currentGamesSettings.cellSize = newCell;
   buildPlayers(currentGamesSettings);
 }
