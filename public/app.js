@@ -6,13 +6,13 @@ let countdown = 600;
 let countdownTimer = null;
 
 const $ = sel => document.querySelector(sel);
-const $$ = sel => Array.from(document.querySelectorAll(sel));
 
 const playerNameInput = $('#playerName');
 const levelSelect = $('#levelSelect');
 const customN = $('#customN');
 const createBtn = $('#createBtn');
 const joinBtn = $('#joinBtn');
+const listRoomsBtn = $('#listRoomsBtn');
 const joinRoomId = $('#joinRoomId');
 const createStartBtn = $('#startGameBtn');
 const leaveBtn = $('#leaveBtn');
@@ -22,6 +22,9 @@ const targetNumberEl = $('#targetNumber');
 const elapsedEl = $('#elapsed');
 const bestEl = $('#best');
 const roomInfoEl = $('#roomInfo');
+const chatLog = $('#chatLog');
+const chatInput = $('#chatInput');
+const chatSend = $('#chatSend');
 
 levelSelect.addEventListener('change', ()=> {
   customN.style.display = levelSelect.value === 'super' ? 'inline-block' : 'none';
@@ -29,6 +32,10 @@ levelSelect.addEventListener('change', ()=> {
 
 createBtn.onclick = ()=> {
   socket.emit('createRoom', { playerName: playerNameInput.value || 'Player', level: levelSelect.value, options: { customN: customN.value }});
+};
+
+listRoomsBtn.onclick = ()=> {
+  socket.emit('listRooms');
 };
 
 joinBtn.onclick = ()=> {
@@ -49,23 +56,45 @@ leaveBtn.onclick = ()=> {
   resetToLobby();
 };
 
+chatSend.onclick = ()=> {
+  const text = chatInput.value.trim();
+  if (!text || !currentRoom) return;
+  socket.emit('sendChat', { roomId: currentRoom.id, text });
+  chatInput.value = '';
+};
+
 socket.on('connect', ()=> {
-  console.log('connected as', socket.id);
+  console.log('connected', socket.id);
   localPlayerId = socket.id;
 });
 
-socket.on('roomCreated', ({roomId, roomName, room})=> {
+socket.on('roomsList', list => {
+  const el = $('#roomsInfo');
+  if (!el) return;
+  el.innerHTML = list.map(r => `<div>${r.name} (${r.id}) — ${r.level} — players: ${r.players}</div>`).join('');
+});
+
+socket.on('roomCreated', ({ roomId, roomName, room })=> {
   console.log('roomCreated', roomId, roomName, room);
   currentRoom = room;
   showGameArea();
   renderRoomInfo();
   renderGrids();
+  appendSystemMessage(`Room created: ${room.name} — id: ${room.id}`);
+});
+
+socket.on('joinedRoom', (room) => {
+  console.log('joinedRoom', room);
+  currentRoom = room;
+  showGameArea();
+  renderRoomInfo();
+  renderGrids();
+  appendSystemMessage(`Joined room: ${room.name}`);
 });
 
 socket.on('roomUpdate', (room)=> {
   console.log('roomUpdate', room);
   currentRoom = room;
-  // keep localPlayerId up to date if present
   if (socket.id && currentRoom.players && currentRoom.players[socket.id]) {
     localState = currentRoom.players[socket.id];
   }
@@ -82,6 +111,7 @@ socket.on('gameStarted', (room)=> {
   renderRoomInfo();
   renderGrids(true);
   startLocalCountdown();
+  appendSystemMessage('Game started');
 });
 
 socket.on('playerUpdate', ({ socketId, player })=>{
@@ -92,9 +122,12 @@ socket.on('playerUpdate', ({ socketId, player })=>{
   renderGrids();
 });
 
+socket.on('chatMessage', msg => {
+  appendChatMessage(msg.from, msg.text);
+});
+
 socket.on('wrongSelection', ({expected, got})=>{
-  // optional visual feedback
-  console.log('wrong selection, expected', expected, 'got', got);
+  appendSystemMessage(`Wrong selection (expected ${expected}, got ${got})`);
 });
 
 socket.on('errorMsg', msg => alert(msg));
@@ -112,6 +145,7 @@ function resetToLobby(){
   clearInterval(countdownTimer);
   countdown = 600;
   timeLeftEl.textContent = countdown;
+  chatLog.innerHTML = '';
 }
 
 function renderRoomInfo(){
@@ -119,22 +153,24 @@ function renderRoomInfo(){
   roomInfoEl.innerHTML = `<strong>${escapeHtml(currentRoom.name)}</strong> — Level: ${currentRoom.level}`;
   const names = Object.values(currentRoom.players || {}).map(p=>`<span class="playerBadge">${escapeHtml(p.name)}</span>`).join(' ');
   $('#roomsInfo').innerHTML = names;
+  // update local stats
+  if (localState) {
+    elapsedEl.textContent = Math.round(localState.elapsed || 0);
+    bestEl.textContent = localState.bestTime || '--';
+  }
 }
 
 function renderGrids(started=false){
   if (!currentRoom) return;
-  console.log('renderGrids currentRoom.players', currentRoom.players);
   gridsContainer.innerHTML = '';
   const players = Object.entries(currentRoom.players || {});
   const playersCount = players.length || 1;
   const perRow = (playersCount===4)?2:Math.min(playersCount,3);
-
   players.forEach(([sid, p], idx) => {
     const wrap = document.createElement('div');
     wrap.className = 'gridWrap';
     wrap.style.flex = `1 1 280px`;
     wrap.innerHTML = `<div class="gridTitle">${escapeHtml(p.name)} ${p.bestTime?`• Best ${p.bestTime}s`:''}</div>`;
-    // ensure spec/numbers fallback
     const spec = p.spec || gridSpecFromLevel(currentRoom.level, currentRoom.options && currentRoom.options.customN);
     if (!p.numbers || p.numbers.length !== spec.count) {
       p.numbers = shuffleArray(Array.from({length: spec.count}, (_,i)=>i+1));
@@ -181,7 +217,6 @@ function makeSVGForPlayer(p, started){
       rect.style.cursor = 'pointer';
       rect.dataset.value = val;
       rect.dataset.player = p.id;
-      // click only if local player's grid
       rect.addEventListener('click', (e)=> onCellClick(e, p.id));
       svg.appendChild(rect);
       const t = document.createElementNS('http://www.w3.org/2000/svg','text');
@@ -205,7 +240,6 @@ function makeSVGForPlayer(p, started){
 function onCellClick(e, ownerId){
   const rect = e.currentTarget;
   const val = parseInt(rect.dataset.value);
-  // only allow clicking your own grid
   if (socket.id !== ownerId) return;
   socket.emit('cellSelected', { roomId: currentRoom.id, value: val });
 }
@@ -218,7 +252,6 @@ function gridSpecFromLevel(level, customN){
   return {n, count:n*n, sizePx:60, fontSize:25};
 }
 
-// client-side shuffle (fallback)
 function shuffleArray(arr) {
   for (let i = arr.length -1;i>0;i--) {
     const j = Math.floor(Math.random()*(i+1));
@@ -227,7 +260,6 @@ function shuffleArray(arr) {
   return arr;
 }
 
-// countdown handling
 function startLocalCountdown(){
   clearInterval(countdownTimer);
   countdown = 600;
@@ -237,13 +269,29 @@ function startLocalCountdown(){
     if (countdown < 0) {
       clearInterval(countdownTimer);
       timeLeftEl.textContent = '0';
+      appendSystemMessage('Time up');
       return;
     }
     timeLeftEl.textContent = countdown;
   },1000);
 }
 
-// helpers
+function appendChatMessage(from, text){
+  const div = document.createElement('div');
+  div.className = 'chatMsg';
+  div.innerHTML = `<strong>${escapeHtml(from)}:</strong> ${escapeHtml(text)}`;
+  chatLog.appendChild(div);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function appendSystemMessage(text){
+  const div = document.createElement('div');
+  div.className = 'chatMsg';
+  div.innerHTML = `<em>${escapeHtml(text)}</em>`;
+  chatLog.appendChild(div);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
 function escapeHtml(s){ return (s||'').toString().replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
 
 function randomColorForIndex(seed){
