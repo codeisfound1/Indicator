@@ -1,79 +1,62 @@
 <!doctype html>
 <html>
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Grid Finder</title>
-<link rel="stylesheet" href="/style.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Grid Generator Game</title>
+  <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div id="app">
     <div id="lobby" class="panel">
-      <h1>Grid Finder</h1>
-      <div class="row">
-        <label>Username <input id="username" placeholder="Auto"></label>
-        <label>Level
-          <select id="level">
-            <option value="easy">Dễ (5x5)</option>
-            <option value="medium">Trung bình (7x7)</option>
-            <option value="hard">Khó (10x10)</option>
-            <option value="insane">Siêu khó (NxN)</option>
-          </select>
-        </label>
-        <label id="insaneN" style="display:none">N <input id="insaneNInput" type="number" min="10" value="12"></label>
+      <h2>Lobby</h2>
+      <div>
+        <button id="createEasy">Create Easy</button>
+        <button id="createMedium">Create Medium</button>
+        <button id="createHard">Create Hard</button>
+        <button id="createSuper">Create Super</button>
       </div>
-      <div class="row">
-        <button id="create">Tạo phòng</button>
-        <input id="joinRoomInput" placeholder="Mã phòng">
-        <button id="join">Tham gia</button>
+      <div>
+        <input id="superN" type="number" placeholder="n for super (>=10)" min="10" />
+        <input id="countdown" type="number" placeholder="Countdown (s)" />
       </div>
-      <div id="info"></div>
+      <h3>Rooms</h3>
+      <ul id="rooms"></ul>
+      <h3>Your name: <span id="playerName"></span></h3>
+      <input id="nameInput" placeholder="Change name" />
     </div>
 
-    <div id="room" class="panel" style="display:none">
-      <div class="roomHeader">
-        <div>
-          <div>Phòng: <span id="roomIdDisplay"></span></div>
-          <div>Level:
-            <select id="roomLevel">
-              <option value="easy">Dễ</option>
-              <option value="medium">Trung bình</option>
-              <option value="hard">Khó</option>
-              <option value="insane">Siêu khó</option>
-            </select>
-            <span id="ownerBadge" style="font-size:12px;color:#666;margin-left:8px"></span>
-          </div>
-        </div>
-        <div>
-          <button id="startGame">Bắt đầu</button>
-          <button id="leaveRoom">Rời</button>
-        </div>
+    <div id="room" class="panel hidden">
+      <div class="topbar">
+        <div><strong>Room:</strong> <span id="roomName"></span> — <span id="roomState"></span></div>
+        <div><button id="leaveRoom">Leave</button> <button id="startGame">Start</button></div>
       </div>
 
-      <div class="mainPlay">
-        <div class="leftcol">
-          <div id="playerGrids" class="gridsContainer"></div>
+      <div class="room-main">
+        <div id="playersList" class="sidebar">
+          <h4>Players</h4>
+          <ul id="players"></ul>
+          <h4>Best Times</h4>
+          <ul id="bestTimes"></ul>
+          <h4>Chat</h4>
+          <div id="chatBox" class="chatbox"></div>
+          <input id="chatInput" placeholder="Say something" />
         </div>
-        <div class="rightcol">
-          <div class="status">
-            <div>Searching: <div id="targetNumber" class="targetNum">—</div></div>
-            <div>Time left: <div id="countdown">600</div></div>
-            <div>Elapsed: <div id="elapsed">0</div></div>
-            <div>Best (session): <div id="bestSession">—</div></div>
+
+        <div id="gameArea" class="gamearea">
+          <div class="game-header">
+            <div>Time left: <span id="timeLeft"></span></div>
+            <div>Find: <span id="targetNumber" style="font-size:65px;font-weight:700"></span></div>
+            <div>Level: <span id="levelLabel"></span></div>
           </div>
-          <div class="chat">
-            <div id="chatLog"></div>
-            <div style="display:flex;gap:6px;">
-              <input id="chatInput" placeholder="Chat..." style="flex:1">
-              <button id="sendChat">Gửi</button>
-            </div>
-          </div>
+          <div id="gridsContainer" class="grids"></div>
+          <div id="results" class="hidden"></div>
         </div>
       </div>
     </div>
   </div>
 
-<script src="/socket.io/socket.io.js"></script>
-<script src="/app.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>
