@@ -3,49 +3,49 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Grid Finder</title>
-<link rel="stylesheet" href="style.css">
+<title>Grid Generator Game</title>
+<link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <div id="lobby" class="panel">
-    <h1>Grid Finder</h1>
-    <div class="row">
-      <input id="playerName" placeholder="Your name" />
+  <div id="app">
+    <div id="lobby">
+      <input id="playerName" placeholder="Tên bạn" />
       <select id="levelSelect">
-        <option value="easy">Dễ 5x5</option>
-        <option value="medium">Trung bình 7x7</option>
-        <option value="hard">Khó 10x10</option>
-        <option value="custom">Siêu khó (tùy n)</option>
+        <option value="easy">Dễ (5x5)</option>
+        <option value="medium">Trung bình (7x7)</option>
+        <option value="hard">Khó (10x10)</option>
+        <option value="super">Siêu khó (nxn)</option>
       </select>
-      <input id="customN" type="number" min="10" value="10" style="width:80px;display:none"/>
-      <button id="createRoomBtn">Create Room</button>
-      <input id="roomIdInput" placeholder="Room ID to join" />
-      <button id="joinRoomBtn">Join Room</button>
-    </div>
-    <div id="roomsList"></div>
-  </div>
-
-  <div id="game" class="panel" style="display:none">
-    <div class="topbar">
-      <div><strong>Room:</strong> <span id="roomIdDisplay"></span></div>
-      <div><strong>Player:</strong> <span id="playerDisplay"></span></div>
-      <div><strong>Target:</strong> <span id="currentTarget" class="bigTarget"></span></div>
-      <div><strong>Timer:</strong> <span id="timerDisplay">600</span>s</div>
-      <div><button id="leaveBtn">Leave</button></div>
+      <input id="customN" placeholder="n (>=10)" style="display:none;width:80px" />
+      <button id="createBtn">Tạo Room</button>
+      <input id="joinRoomId" placeholder="Mã room" />
+      <button id="joinBtn">Tham gia Room</button>
+      <div id="roomsInfo"></div>
     </div>
 
-    <div id="multigridWrap"></div>
+    <div id="gameArea" style="display:none">
+      <div id="topBar">
+        <div id="roomInfo"></div>
+        <div id="timer">Time: <span id="timeLeft">600</span>s</div>
+        <div id="target">Find: <span id="targetNumber" style="font-size:65px"></span></div>
+        <div id="localStats">Elapsed: <span id="elapsed">0</span>s | Best: <span id="best">--</span>s</div>
+      </div>
 
-    <div class="controls">
-      <label>Cell size: <input id="cellSize" type="range" min="30" max="120" value="60" /></label>
-      <label>Cell font: <input id="cellFontSize" type="range" min="12" max="48" value="25" /></label>
-      <button id="startBtn">Start Game</button>
+      <div id="gridsContainer"></div>
+
+      <div id="controls">
+        <button id="startGameBtn">Bắt đầu</button>
+        <button id="leaveBtn">Rời Room</button>
+      </div>
+
+      <div id="chatArea">
+        <div id="chatHeader"></div>
+        <div id="chatLog"></div>
+      </div>
     </div>
-
-    <div id="statusLog" class="panel small"></div>
   </div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>
