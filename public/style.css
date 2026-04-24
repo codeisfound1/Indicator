@@ -1,8 +1,8 @@
 :root{
   --gap:8px;
   --panel-bg:#f7f7f8;
-  --accent:#333;
 }
+*{box-sizing:border-box}
 body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;color:#111;margin:0;padding:12px;background:#fff;}
 .panel{max-width:1200px;margin:0 auto;background:var(--panel-bg);padding:12px;border-radius:8px;}
 .row{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
@@ -10,13 +10,12 @@ input,select,button{padding:8px;border-radius:6px;border:1px solid #ccc;}
 .gridsContainer{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;}
 .playerGridWrap{border:1px solid #ddd;padding:6px;border-radius:6px;background:#fff;}
 .playerName{font-weight:600;margin-bottom:6px;font-size:14px;}
-.svgWrap{display:block;}
+.svgWrap{display:block;touch-action:none;}
 .status{margin-bottom:12px;}
 .targetNum{font-size:65px;font-weight:700;}
 #countdown,#elapsed,#bestSession{font-size:16px;margin-top:4px;}
 .chat{margin-top:12px;}
 #chatLog{height:200px;overflow:auto;border:1px solid #ddd;padding:6px;background:#fff;margin-bottom:6px;}
-/* responsive grid container sizing */
 @media (max-width:600px){
   .mainPlay{display:block;}
   .leftcol,.rightcol{width:100%;}
