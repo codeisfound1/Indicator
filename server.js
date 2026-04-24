@@ -41,15 +41,18 @@ io.on('connection', socket => {
   });
 
   socket.on('joinRoom', ({roomId, playerName}) => {
-    console.log('joinRoom request', roomId, playerName);
-    const room = rooms[roomId];
-    if (!room) { socket.emit('errorMsg', 'Room not found'); return; }
-    if (Object.keys(room.players).length >= room.maxPlayers) { socket.emit('errorMsg', 'Room full'); return; }
-    socket.join(roomId);
-    room.players[socket.id] = createPlayerState(playerName || 'Player', socket.id);
-    console.log('room after join', roomId, Object.keys(room.players));
-    io.in(roomId).emit('roomUpdate', cloneSafe(room));
-  });
+  console.log('joinRoom request', roomId, playerName);
+  // try find by id first, then by name
+  let room = rooms[roomId];
+  if (!room) {
+    room = Object.values(rooms).find(r=> r.name === roomId);
+  }
+  if (!room) { socket.emit('errorMsg', 'Room not found'); return; }
+  if (Object.keys(room.players).length >= room.maxPlayers) { socket.emit('errorMsg', 'Room full'); return; }
+  socket.join(room.id);
+  room.players[socket.id] = createPlayerState(playerName || 'Player', socket.id);
+  io.in(room.id).emit('roomUpdate', room);
+});
 
   socket.on('startGame', ({roomId, level, options}) => {
     const room = rooms[roomId];
