@@ -32,7 +32,9 @@ createBtn.onclick = ()=> {
 };
 
 joinBtn.onclick = ()=> {
-  socket.emit('joinRoom', { roomId: joinRoomId.value.trim(), playerName: playerNameInput.value || 'Player' });
+  const id = joinRoomId.value.trim();
+  if (!id) { alert('Nhập mã room'); return; }
+  socket.emit('joinRoom', { roomId: id, playerName: playerNameInput.value || 'Player' });
 };
 
 createStartBtn.onclick = ()=> {
@@ -47,30 +49,52 @@ leaveBtn.onclick = ()=> {
   resetToLobby();
 };
 
+socket.on('connect', ()=> {
+  console.log('connected as', socket.id);
+  localPlayerId = socket.id;
+});
+
 socket.on('roomCreated', ({roomId, roomName, room})=> {
+  console.log('roomCreated', roomId, roomName, room);
   currentRoom = room;
   showGameArea();
   renderRoomInfo();
+  renderGrids();
 });
 
 socket.on('roomUpdate', (room)=> {
+  console.log('roomUpdate', room);
   currentRoom = room;
+  // keep localPlayerId up to date if present
+  if (socket.id && currentRoom.players && currentRoom.players[socket.id]) {
+    localState = currentRoom.players[socket.id];
+  }
   renderRoomInfo();
-  renderGrids(); // show players present
+  renderGrids();
 });
 
 socket.on('gameStarted', (room)=> {
+  console.log('gameStarted', room);
   currentRoom = room;
+  if (socket.id && currentRoom.players && currentRoom.players[socket.id]) {
+    localState = currentRoom.players[socket.id];
+  }
   renderRoomInfo();
   renderGrids(true);
   startLocalCountdown();
 });
 
-// individual player update
 socket.on('playerUpdate', ({ socketId, player })=>{
+  console.log('playerUpdate', socketId, player);
   if (!currentRoom) return;
   currentRoom.players[socketId] = player;
+  if (socketId === socket.id) localState = player;
   renderGrids();
+});
+
+socket.on('wrongSelection', ({expected, got})=>{
+  // optional visual feedback
+  console.log('wrong selection, expected', expected, 'got', got);
 });
 
 socket.on('errorMsg', msg => alert(msg));
@@ -93,22 +117,29 @@ function resetToLobby(){
 function renderRoomInfo(){
   if (!currentRoom) return;
   roomInfoEl.innerHTML = `<strong>${escapeHtml(currentRoom.name)}</strong> — Level: ${currentRoom.level}`;
-  // players
-  const names = Object.values(currentRoom.players).map(p=>`<span class="playerBadge">${escapeHtml(p.name)}</span>`).join(' ');
+  const names = Object.values(currentRoom.players || {}).map(p=>`<span class="playerBadge">${escapeHtml(p.name)}</span>`).join(' ');
   $('#roomsInfo').innerHTML = names;
 }
 
 function renderGrids(started=false){
   if (!currentRoom) return;
+  console.log('renderGrids currentRoom.players', currentRoom.players);
   gridsContainer.innerHTML = '';
-  const players = Object.entries(currentRoom.players);
-  // layout: if 4 players -> 2x2 fixed. else stack in row wrap.
-  const perRow = (players.length===4)?2:players.length;
+  const players = Object.entries(currentRoom.players || {});
+  const playersCount = players.length || 1;
+  const perRow = (playersCount===4)?2:Math.min(playersCount,3);
+
   players.forEach(([sid, p], idx) => {
     const wrap = document.createElement('div');
     wrap.className = 'gridWrap';
     wrap.style.flex = `1 1 280px`;
     wrap.innerHTML = `<div class="gridTitle">${escapeHtml(p.name)} ${p.bestTime?`• Best ${p.bestTime}s`:''}</div>`;
+    // ensure spec/numbers fallback
+    const spec = p.spec || gridSpecFromLevel(currentRoom.level, currentRoom.options && currentRoom.options.customN);
+    if (!p.numbers || p.numbers.length !== spec.count) {
+      p.numbers = shuffleArray(Array.from({length: spec.count}, (_,i)=>i+1));
+    }
+    p.spec = spec;
     const svg = makeSVGForPlayer(p, started);
     wrap.appendChild(svg);
     gridsContainer.appendChild(wrap);
@@ -119,13 +150,10 @@ function makeSVGForPlayer(p, started){
   const spec = p.spec || gridSpecFromLevel(currentRoom.level, currentRoom.options && currentRoom.options.customN);
   const n = spec.n;
   const cellBase = spec.sizePx || 60;
-  // responsive adjust: compute available width
   const containerWidth = Math.min(window.innerWidth-40, 900);
   const playersCount = Object.keys(currentRoom.players).length || 1;
-  // if 2x2 layout with 4 players we halve container width for each column
   const perRow = (playersCount===4)?2:Math.min(playersCount,3);
   const maxWidthPerGrid = Math.floor((containerWidth - (perRow*16)) / perRow);
-  // compute cell size so that whole grid fits width
   const computedCell = Math.max(24, Math.floor(Math.min(cellBase, maxWidthPerGrid / n)));
   const svgSize = computedCell * n;
   const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
@@ -133,7 +161,6 @@ function makeSVGForPlayer(p, started){
   svg.setAttribute('height', svgSize);
   svg.classList.add('svgGrid');
 
-  // build color palette (unique per cell)
   const numbers = p.numbers || Array.from({length: spec.count}, (_,i)=>i+1);
   for(let r=0;r<n;r++){
     for(let c=0;c<n;c++){
@@ -143,7 +170,6 @@ function makeSVGForPlayer(p, started){
       const y = r*computedCell;
       const cellColor = randomColorForIndex(idx + (p.id?hashCodeToSeed(p.id):0));
       const textColor = '#ffffff';
-      // rect
       const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
       rect.setAttribute('x',x);
       rect.setAttribute('y',y);
@@ -155,9 +181,9 @@ function makeSVGForPlayer(p, started){
       rect.style.cursor = 'pointer';
       rect.dataset.value = val;
       rect.dataset.player = p.id;
-      rect.addEventListener('click', onCellClick);
+      // click only if local player's grid
+      rect.addEventListener('click', (e)=> onCellClick(e, p.id));
       svg.appendChild(rect);
-      // text
       const t = document.createElementNS('http://www.w3.org/2000/svg','text');
       t.setAttribute('x', x + (computedCell/2));
       t.setAttribute('y', y + (computedCell/2));
@@ -167,7 +193,6 @@ function makeSVGForPlayer(p, started){
       t.classList.add('cellText');
       t.textContent = val;
       svg.appendChild(t);
-      // mark selected style if already advanced
       if (p.next && val < p.next) {
         rect.setAttribute('opacity', '0.35');
         t.setAttribute('opacity', '0.35');
@@ -177,16 +202,12 @@ function makeSVGForPlayer(p, started){
   return svg;
 }
 
-function onCellClick(e){
+function onCellClick(e, ownerId){
   const rect = e.currentTarget;
   const val = parseInt(rect.dataset.value);
-  const playerId = rect.dataset.player;
-  // only local player's grid is interactive
-  // determine local socket id
-  // socket.id not immediately available until connected
-  if (socket.id !== playerId) return;
+  // only allow clicking your own grid
+  if (socket.id !== ownerId) return;
   socket.emit('cellSelected', { roomId: currentRoom.id, value: val });
-  // optimistic: update UI
 }
 
 function gridSpecFromLevel(level, customN){
@@ -195,6 +216,15 @@ function gridSpecFromLevel(level, customN){
   if (level === 'hard') return {n:10, count:100, sizePx:60, fontSize:25};
   const n = Math.max(10, parseInt(customN) || 10);
   return {n, count:n*n, sizePx:60, fontSize:25};
+}
+
+// client-side shuffle (fallback)
+function shuffleArray(arr) {
+  for (let i = arr.length -1;i>0;i--) {
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
 }
 
 // countdown handling
@@ -207,7 +237,6 @@ function startLocalCountdown(){
     if (countdown < 0) {
       clearInterval(countdownTimer);
       timeLeftEl.textContent = '0';
-      // game over handling can be extended
       return;
     }
     timeLeftEl.textContent = countdown;
@@ -218,7 +247,6 @@ function startLocalCountdown(){
 function escapeHtml(s){ return (s||'').toString().replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
 
 function randomColorForIndex(seed){
-  // deterministic-ish color generator
   const h = (Math.abs(Math.sin(seed+1))*360) | 0;
   const s = 60 + (seed % 30);
   const l = 45 + (seed % 10);
