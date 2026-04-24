@@ -1,0 +1,21 @@
+Grid Finder - run instructions
+
+1. Save files into project folder with structure:
+  package.json
+  server.js
+  best_times.json (optional)
+  /public/index.html
+  /public/app.js
+  /public/style.css
+
+2. Install and start:
+  npm install
+  npm start
+
+3. Open in browser:
+  http://localhost:3000
+
+Notes:
+- Uses Socket.IO for realtime. Server authoritative countdown and best-time updates.
+- Best times persisted to best_times.json when updated.
+- Frontend is vanilla JS; SVG grid rendering is in /public/app.js.
