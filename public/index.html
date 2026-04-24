@@ -1,45 +1,51 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Grid Finder</title>
-  <link rel="stylesheet" href="style.css" />
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Grid Finder</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="header">
+  <div id="lobby" class="panel">
+    <h1>Grid Finder</h1>
+    <div class="row">
+      <input id="playerName" placeholder="Your name" />
+      <select id="levelSelect">
+        <option value="easy">Dễ 5x5</option>
+        <option value="medium">Trung bình 7x7</option>
+        <option value="hard">Khó 10x10</option>
+        <option value="custom">Siêu khó (tùy n)</option>
+      </select>
+      <input id="customN" type="number" min="10" value="10" style="width:80px;display:none"/>
+      <button id="createRoomBtn">Create Room</button>
+      <input id="roomIdInput" placeholder="Room ID to join" />
+      <button id="joinRoomBtn">Join Room</button>
+    </div>
+    <div id="roomsList"></div>
+  </div>
+
+  <div id="game" class="panel" style="display:none">
+    <div class="topbar">
+      <div><strong>Room:</strong> <span id="roomIdDisplay"></span></div>
+      <div><strong>Player:</strong> <span id="playerDisplay"></span></div>
+      <div><strong>Target:</strong> <span id="currentTarget" class="bigTarget"></span></div>
+      <div><strong>Timer:</strong> <span id="timerDisplay">600</span>s</div>
+      <div><button id="leaveBtn">Leave</button></div>
+    </div>
+
+    <div id="multigridWrap"></div>
+
     <div class="controls">
-      <label>Room <input id="roomId" value="room1"></label>
-      <label>Name <input id="name" value="Player"></label>
-      <button id="joinBtn" class="btn">Join</button>
-      <button id="leaveBtn" class="btn" disabled>Leave</button>
-      <label>Players <select id="playersCount"><option>1</option><option>2</option><option>3</option><option selected>4</option></select></label>
-      <label>Level <select id="level"><option value="easy">Dễ (5x5)</option><option value="medium">Trung bình (7x7)</option><option value="hard">Khó (10x10)</option><option value="custom">Siêu khó (tùy n)</option></select></label>
-      <label id="customNlabel" style="display:none">n <input id="customN" type="number" min="10" value="12"></label>
-      <label>Cell size <input id="cellSize" type="number" value="60" min="20"></label>
-      <label>Font size (cell) <input id="fontCell" type="number" value="25" min="8"></label>
-      <label>Target font <input id="fontTarget" type="number" value="65" min="12"></label>
-      <label>Time (s) <input id="countdown" type="number" value="600" min="10"></label>
-      <button id="startBtn" class="btn">Start</button>
+      <label>Cell size: <input id="cellSize" type="range" min="30" max="120" value="60" /></label>
+      <label>Cell font: <input id="cellFontSize" type="range" min="12" max="48" value="25" /></label>
+      <button id="startBtn">Start Game</button>
     </div>
+
+    <div id="statusLog" class="panel small"></div>
   </div>
 
-  <div class="container" id="playersContainer">
-    <!-- player-area clones inserted here -->
-  </div>
-
-  <div class="footer">
-    <div>
-      <span class="small">Status:</span> <span id="status">Not connected</span>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <div class="chat" id="chatBox"></div>
-      <input id="chatInput" placeholder="Chat..." />
-      <button id="sendChat" class="btn">Send</button>
-    </div>
-  </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="app.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
