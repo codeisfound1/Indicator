@@ -6,170 +6,131 @@ const shortid = require('shortid');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+const PORT = process.env.PORT || 3000;
 
 app.use(express.static('public'));
 
 const MAX_PLAYERS = 4;
-const rooms = {}; // roomId -> { id, name, level, players: {sid: playerState}, options, maxPlayers }
+const INACTIVITY_MS = 60_000; // kick if inactive 60s
 
-function makeRoomName() {
-  const adjectives = ['Cheeky','Merry','Silly','Zesty','Bouncy','Snappy'];
-  const nouns = ['Panda','Gnome','Otter','Tofu','Pickle','Wombat'];
-  return `${adjectives[Math.floor(Math.random()*adjectives.length)]}${nouns[Math.floor(Math.random()*nouns.length)]}${Math.floor(Math.random()*90+10)}`;
+// Rooms store: { roomId: { players: {socketId: {name, lastSeen, ready, bestTime, gridSpec}}, level, owner } }
+const rooms = {};
+
+function randomRoomName() {
+  return shortid.generate().slice(0,6);
+}
+function randomPlayerName() {
+  return 'P' + Math.floor(1000 + Math.random()*9000);
 }
 
 io.on('connection', socket => {
-  console.log('connect', socket.id);
-
-  socket.on('createRoom', ({ playerName, level, options }) => {
-    const roomId = shortid.generate();
-    const roomName = makeRoomName();
-    rooms[roomId] = {
-      id: roomId,
-      name: roomName,
-      level: level || 'easy',
-      players: {},
-      options: options || {},
-      maxPlayers: MAX_PLAYERS,
-      createdAt: Date.now()
-    };
+  socket.on('create_room', (opts, cb) => {
+    const roomId = randomRoomName();
+    const name = opts.name || randomPlayerName();
+    const level = opts.level || 'easy';
+    rooms[roomId] = { players: {}, level, owner: socket.id };
     socket.join(roomId);
-    rooms[roomId].players[socket.id] = createPlayerState(playerName || 'Player', socket.id);
-    console.log('room created', roomId);
-    // Emit full room to everyone in room (creator only right now)
-    io.in(roomId).emit('roomCreated', clone(rooms[roomId]));
-    io.in(roomId).emit('roomUpdate', clone(rooms[roomId]));
+    rooms[roomId].players[socket.id] = { name, lastSeen: Date.now(), bestTime: null, gridSpec: null, active: true };
+    socket.data.roomId = roomId;
+    socket.data.name = name;
+    cb({ ok: true, roomId, name });
+    io.to(roomId).emit('room_update', publicRoomState(roomId));
   });
 
-  socket.on('listRooms', () => {
-    // safe list for UI
-    const list = Object.values(rooms).map(r => ({ id: r.id, name: r.name, level: r.level, players: Object.keys(r.players).length }));
-    socket.emit('roomsList', list);
-  });
-
-  socket.on('joinRoom', ({ roomId, playerName }) => {
-    console.log('joinRoom', roomId, playerName, socket.id);
+  socket.on('join_room', ({roomId, name}, cb) => {
+    if (!rooms[roomId]) return cb({ ok:false, error:'Room not found' });
     const room = rooms[roomId];
-    if (!room) { socket.emit('errorMsg', 'Room not found'); return; }
-    if (Object.keys(room.players).length >= room.maxPlayers) { socket.emit('errorMsg', 'Room full'); return; }
+    if (Object.keys(room.players).length >= MAX_PLAYERS) return cb({ ok:false, error:'Room full' });
     socket.join(roomId);
-    room.players[socket.id] = createPlayerState(playerName || 'Player', socket.id);
-    // broadcast updated room to everyone in room
-    io.in(roomId).emit('roomUpdate', clone(room));
-    // also notify joiner with roomCreated-like payload for immediate UI
-    io.to(socket.id).emit('joinedRoom', clone(room));
+    socket.data.roomId = roomId;
+    socket.data.name = name || randomPlayerName();
+    room.players[socket.id] = { name: socket.data.name, lastSeen: Date.now(), bestTime: null, gridSpec: null, active: true };
+    cb({ ok:true, roomId, name: socket.data.name });
+    io.to(roomId).emit('room_update', publicRoomState(roomId));
   });
 
-  socket.on('startGame', ({ roomId, level, options }) => {
+  socket.on('set_level', (level) => {
+    const roomId = socket.data.roomId;
+    if (!roomId || !rooms[roomId]) return;
     const room = rooms[roomId];
-    if (!room) return;
-    room.level = level || room.level;
-    room.options = options || room.options;
-    // initialize each player's grid spec and shuffle numbers
-    for (const sid of Object.keys(room.players)) {
-      const spec = gridSpecForLevel(room.level, room.options.customN);
-      room.players[sid].spec = spec;
-      room.players[sid].numbers = shuffleArray(Array.from({ length: spec.count }, (_, i) => i + 1));
-      room.players[sid].next = 1;
-      room.players[sid].timeStart = Date.now();
-      room.players[sid].elapsed = 0;
-      room.players[sid].finishedAt = null;
-      room.players[sid].bestTime = room.players[sid].bestTime || null;
+    if (room.owner !== socket.id) return;
+    room.level = level;
+    io.to(roomId).emit('room_update', publicRoomState(roomId));
+  });
+
+  socket.on('chat', (msg) => {
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
+    io.to(roomId).emit('chat', { from: socket.data.name, msg, ts: Date.now() });
+  });
+
+  socket.on('player_grid_ready', (gridSpec) => {
+    const roomId = socket.data.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    rooms[roomId].players[socket.id].gridSpec = gridSpec;
+    rooms[roomId].players[socket.id].lastSeen = Date.now();
+    io.to(roomId).emit('room_update', publicRoomState(roomId));
+  });
+
+  socket.on('player_progress', ({current, time}) => {
+    const roomId = socket.data.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    const p = rooms[roomId].players[socket.id];
+    p.lastSeen = Date.now();
+    if (current && current.doneAtMs) {
+      const elapsed = current.doneAtMs;
+      if (!p.bestTime || elapsed < p.bestTime) p.bestTime = elapsed;
     }
-    console.log('game started', roomId);
-    io.in(roomId).emit('gameStarted', clone(room));
-    io.in(roomId).emit('roomUpdate', clone(room));
+    io.to(roomId).emit('player_progress', { socketId: socket.id, name: p.name, current, bestTime: p.bestTime });
   });
 
-  socket.on('cellSelected', ({ roomId, value }) => {
-    const room = rooms[roomId];
-    if (!room) return;
-    const player = room.players[socket.id];
-    if (!player) return;
-    // only accept valid number clicks
-    if (value === player.next) {
-      player.next++;
-      if (player.next > player.spec.count) {
-        player.finishedAt = Date.now();
-        player.elapsed = Math.round((player.finishedAt - player.timeStart) / 1000);
-        if (!player.bestTime || player.elapsed < player.bestTime) player.bestTime = player.elapsed;
-      }
-      // broadcast specific player update and full room update
-      io.in(roomId).emit('playerUpdate', { socketId: socket.id, player: clone(player) });
-      io.in(roomId).emit('roomUpdate', clone(room));
-    } else {
-      io.to(socket.id).emit('wrongSelection', { expected: player.next, got: value });
+  socket.on('keepalive', () => {
+    const roomId = socket.data.roomId;
+    if (roomId && rooms[roomId] && rooms[roomId].players[socket.id]) {
+      rooms[roomId].players[socket.id].lastSeen = Date.now();
     }
-  });
-
-  socket.on('sendChat', ({ roomId, text }) => {
-    const room = rooms[roomId];
-    if (!room) return;
-    const player = room.players[socket.id];
-    const msg = { from: player ? player.name : 'Unknown', text: String(text).slice(0, 500), time: Date.now() };
-    io.in(roomId).emit('chatMessage', msg);
-  });
-
-  socket.on('leaveRoom', ({ roomId }) => {
-    leaveRoom(socket, roomId);
   });
 
   socket.on('disconnect', () => {
-    console.log('disconnect', socket.id);
-    for (const roomId of Object.keys(rooms)) {
-      if (rooms[roomId].players[socket.id]) {
-        leaveRoom(socket, roomId);
+    const roomId = socket.data.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    delete rooms[roomId].players[socket.id];
+    // if empty room, delete
+    if (Object.keys(rooms[roomId].players).length === 0) {
+      delete rooms[roomId];
+    } else {
+      // transfer owner if needed
+      if (rooms[roomId].owner === socket.id) {
+        rooms[roomId].owner = Object.keys(rooms[roomId].players)[0];
       }
+      io.to(roomId).emit('room_update', publicRoomState(roomId));
     }
   });
 });
 
-function leaveRoom(socket, roomId) {
-  const room = rooms[roomId];
-  if (!room) return;
-  delete room.players[socket.id];
-  socket.leave(roomId);
-  if (Object.keys(room.players).length === 0) {
-    delete rooms[roomId];
-    console.log('room deleted', roomId);
-  } else {
-    io.in(roomId).emit('roomUpdate', clone(room));
+// Periodic inactivity check
+setInterval(() => {
+  const now = Date.now();
+  for (const [roomId, room] of Object.entries(rooms)) {
+    for (const [sid, p] of Object.entries(room.players)) {
+      if (now - p.lastSeen > INACTIVITY_MS) {
+        io.sockets.sockets.get(sid)?.disconnect(true);
+        delete room.players[sid];
+      }
+    }
+    if (Object.keys(room.players).length === 0) delete rooms[roomId];
   }
-}
+}, 5000);
 
-function createPlayerState(name, socketId) {
+function publicRoomState(roomId) {
+  const r = rooms[roomId];
+  if (!r) return null;
   return {
-    id: socketId,
-    name: name,
-    spec: null,
-    numbers: [],
-    next: 1,
-    timeStart: null,
-    elapsed: 0,
-    finishedAt: null,
-    bestTime: null
+    roomId,
+    level: r.level,
+    owner: r.owner,
+    players: Object.entries(r.players).map(([sid, p]) => ({ socketId: sid, name: p.name, bestTime: p.bestTime, gridSpec: p.gridSpec }))
   };
 }
 
-function gridSpecForLevel(level, customN) {
-  if (level === 'easy') return { n: 5, count: 25, sizePx: 60, fontSize: 25 };
-  if (level === 'medium') return { n: 7, count: 49, sizePx: 60, fontSize: 25 };
-  if (level === 'hard') return { n: 10, count: 100, sizePx: 60, fontSize: 25 };
-  const n = Math.max(10, parseInt(customN) || 10);
-  return { n, count: n * n, sizePx: 60, fontSize: 25 };
-}
-
-function shuffleArray(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-function clone(o) {
-  return JSON.parse(JSON.stringify(o));
-}
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Server running on', PORT));
+server.listen(PORT, () => console.log('Server on', PORT));
