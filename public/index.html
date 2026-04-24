@@ -3,57 +3,69 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Grid Generator Game</title>
+  <title>Grid Finder</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div id="app">
-    <div id="lobby" class="panel">
-      <h2>Lobby</h2>
-      <div>
-        <button id="createEasy">Create Easy</button>
-        <button id="createMedium">Create Medium</button>
-        <button id="createHard">Create Hard</button>
-        <button id="createSuper">Create Super</button>
+    <header id="header">
+      <div id="lobby-controls">
+        <button id="btn-new-room">Create Room</button>
+        <select id="select-level">
+          <option value="easy">Easy (5x5)</option>
+          <option value="medium">Medium (7x7)</option>
+          <option value="hard">Hard (10x10)</option>
+          <option value="extreme">Custom (n≥10)</option>
+        </select>
+        <input id="input-n" type="number" placeholder="n (for custom)" min="10" style="width:80px;" />
+        <button id="btn-refresh-rooms">Refresh</button>
       </div>
-      <div>
-        <input id="superN" type="number" placeholder="n for super (>=10)" min="10" />
-        <input id="countdown" type="number" placeholder="Countdown (s)" />
+      <div id="room-info">
+        <div id="room-name"></div>
+        <div id="timer">--:--</div>
+        <div id="target-number">#</div>
       </div>
-      <h3>Rooms</h3>
-      <ul id="rooms"></ul>
-      <h3>Your name: <span id="playerName"></span></h3>
-      <input id="nameInput" placeholder="Change name" />
-    </div>
+    </header>
 
-    <div id="room" class="panel hidden">
-      <div class="topbar">
-        <div><strong>Room:</strong> <span id="roomName"></span> — <span id="roomState"></span></div>
-        <div><button id="leaveRoom">Leave</button> <button id="startGame">Start</button></div>
-      </div>
-
-      <div class="room-main">
-        <div id="playersList" class="sidebar">
+    <main id="main">
+      <aside id="left-panel">
+        <div id="lobby">
+          <h3>Lobby</h3>
+          <ul id="rooms-list"></ul>
+        </div>
+        <div id="players-box">
           <h4>Players</h4>
-          <ul id="players"></ul>
-          <h4>Best Times</h4>
-          <ul id="bestTimes"></ul>
+          <ul id="players-list"></ul>
+          <div id="host-controls">
+            <button id="btn-start" disabled>Start</button>
+            <label><input id="chk-ready" type="checkbox" /> Ready</label>
+          </div>
+        </div>
+      </aside>
+
+      <section id="grid-panel">
+        <!-- grids will be injected here -->
+      </section>
+
+      <aside id="right-panel">
+        <div id="chat-box">
           <h4>Chat</h4>
-          <div id="chatBox" class="chatbox"></div>
-          <input id="chatInput" placeholder="Say something" />
+          <div id="chat-messages"></div>
+          <form id="chat-form">
+            <input id="chat-input" autocomplete="off" placeholder="Type message" />
+            <button>Send</button>
+          </form>
         </div>
 
-        <div id="gameArea" class="gamearea">
-          <div class="game-header">
-            <div>Time left: <span id="timeLeft"></span></div>
-            <div>Find: <span id="targetNumber" style="font-size:65px;font-weight:700"></span></div>
-            <div>Level: <span id="levelLabel"></span></div>
-          </div>
-          <div id="gridsContainer" class="grids"></div>
-          <div id="results" class="hidden"></div>
+        <div id="settings">
+          <h4>Settings</h4>
+          <label>Cell size: <input id="setting-cellSize" type="number" value="60" /></label>
+          <label>Cell font: <input id="setting-fontCell" type="number" value="25" /></label>
+          <label>Target font: <input id="setting-fontTarget" type="number" value="65" /></label>
+          <label>Countdown (s): <input id="setting-countdown" type="number" value="600" /></label>
         </div>
-      </div>
-    </div>
+      </aside>
+    </main>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
