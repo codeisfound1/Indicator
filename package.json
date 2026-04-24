@@ -1,5 +1,5 @@
 {
-  "name": "grid-generator-game",
+  "name": "grid-finder",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
