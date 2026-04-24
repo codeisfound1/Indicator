@@ -1,15 +1,22 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const { customAlphabet } = require('nanoid');
+// server.js (ESM)
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import { customAlphabet } from 'nanoid';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
-const rooms = {}; // in-memory rooms: roomId -> { players: {id: {name,...}}, level, bestTimes: {playerId: bestSec}, createdAt }
+// In-memory rooms store
+const rooms = {};
 const nano = customAlphabet('abcdefghijklmnopqrstuvwxyz', 4);
 
 function makeRoomName() {
@@ -53,7 +60,6 @@ io.on('connection', socket => {
   });
 
   socket.on('startGame', ({ roomId, gameState }) => {
-    // broadcast initial game state to all in room (each client will generate their own grid but sync level/timer)
     if (!rooms[roomId]) return;
     rooms[roomId].level = gameState.level || rooms[roomId].level;
     io.to(roomId).emit('gameStarted', { gameState });
@@ -67,7 +73,6 @@ io.on('connection', socket => {
   });
 
   socket.on('statusUpdate', ({ roomId, status }) => {
-    // status: current target number, time remaining, etc.
     if (!rooms[roomId]) return;
     io.to(roomId).emit('peerStatus', { playerId: socket.id, status });
   });
@@ -86,4 +91,4 @@ io.on('connection', socket => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Server listening on', PORT));
+server.listen(PORT, () => console.log(`Server listening on ${PORT}`));
