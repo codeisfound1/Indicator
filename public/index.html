@@ -3,47 +3,72 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Grid Generator Game</title>
+<title>Grid Finder</title>
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div id="app">
-    <div id="lobby">
-      <input id="playerName" placeholder="Tên bạn" />
-      <select id="levelSelect">
-        <option value="easy">Dễ (5x5)</option>
-        <option value="medium">Trung bình (7x7)</option>
-        <option value="hard">Khó (10x10)</option>
-        <option value="super">Siêu khó (nxn)</option>
-      </select>
-      <input id="customN" placeholder="n (>=10)" style="display:none;width:80px" />
-      <button id="createBtn">Tạo Room</button>
-      <input id="joinRoomId" placeholder="Mã room" />
-      <button id="joinBtn">Tham gia Room</button>
-      <button id="listRoomsBtn">Danh sách phòng</button>
-      <div id="roomsInfo"></div>
+    <div id="lobby" class="panel">
+      <h1>Grid Finder</h1>
+      <div class="row">
+        <label>Username <input id="username" placeholder="Auto"></label>
+        <label>Level
+          <select id="level">
+            <option value="easy">Dễ (5x5)</option>
+            <option value="medium">Trung bình (7x7)</option>
+            <option value="hard">Khó (10x10)</option>
+            <option value="insane">Siêu khó (NxN)</option>
+          </select>
+        </label>
+        <label id="insaneN" style="display:none">N <input id="insaneNInput" type="number" min="10" value="12"></label>
+      </div>
+      <div class="row">
+        <button id="create">Tạo phòng</button>
+        <input id="joinRoomInput" placeholder="Mã phòng">
+        <button id="join">Tham gia</button>
+      </div>
+      <div id="info"></div>
     </div>
 
-    <div id="gameArea" style="display:none">
-      <div id="topBar">
-        <div id="roomInfo"></div>
-        <div id="timer">Time left: <span id="timeLeft">600</span>s</div>
-        <div id="target">Find: <span id="targetNumber" style="font-size:65px"></span></div>
-        <div id="localStats">Elapsed: <span id="elapsed">0</span>s | Best: <span id="best">--</span>s</div>
+    <div id="room" class="panel" style="display:none">
+      <div class="roomHeader">
+        <div>
+          <div>Phòng: <span id="roomIdDisplay"></span></div>
+          <div>Level:
+            <select id="roomLevel">
+              <option value="easy">Dễ</option>
+              <option value="medium">Trung bình</option>
+              <option value="hard">Khó</option>
+              <option value="insane">Siêu khó</option>
+            </select>
+            <span id="ownerBadge" style="font-size:12px;color:#666;margin-left:8px"></span>
+          </div>
+        </div>
+        <div>
+          <button id="startGame">Bắt đầu</button>
+          <button id="leaveRoom">Rời</button>
+        </div>
       </div>
 
-      <div id="gridsContainer"></div>
-
-      <div id="controls">
-        <button id="startGameBtn">Bắt đầu</button>
-        <button id="leaveBtn">Rời Room</button>
-      </div>
-
-      <div id="chatArea">
-        <div id="chatHeader">Chat</div>
-        <div id="chatLog"></div>
-        <input id="chatInput" placeholder="Gõ tin nhắn..." />
-        <button id="chatSend">Gửi</button>
+      <div class="mainPlay">
+        <div class="leftcol">
+          <div id="playerGrids" class="gridsContainer"></div>
+        </div>
+        <div class="rightcol">
+          <div class="status">
+            <div>Searching: <div id="targetNumber" class="targetNum">—</div></div>
+            <div>Time left: <div id="countdown">600</div></div>
+            <div>Elapsed: <div id="elapsed">0</div></div>
+            <div>Best (session): <div id="bestSession">—</div></div>
+          </div>
+          <div class="chat">
+            <div id="chatLog"></div>
+            <div style="display:flex;gap:6px;">
+              <input id="chatInput" placeholder="Chat..." style="flex:1">
+              <button id="sendChat">Gửi</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
