@@ -13,7 +13,28 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-const uid = new ShortUniqueId({ length: 4 });
+//const uid = new ShortUniqueId({ length: 4 });
+const id = makeId(4);
+
+// safe UID generator compatible với nhiều phiên bản
+function makeId(len = 4) {
+  try {
+    const s = new ShortUniqueId({ length: len });
+    // some versions expose .uuid() or .randomUUID() or are callable; prefer .randomUUID() if exists
+    if (typeof s.randomUUID === 'function') return s.randomUUID();
+    if (typeof s.uuid === 'function') return s.uuid();
+    if (typeof s.generate === 'function') return s.generate();
+    // fallback: use instance as function if supported
+    if (typeof s === 'function') return s();
+    // final fallback: use crypto
+    const bytes = require('crypto').randomBytes(Math.ceil(len/2)).toString('hex').slice(0,len);
+    return bytes;
+  } catch (e) {
+    // fallback to crypto only
+    const bytes = require('crypto').randomBytes(Math.ceil(len/2)).toString('hex').slice(0,len);
+    return bytes;
+  }
+}
 
 // Configurable defaults
 const DEFAULTS = {
@@ -58,7 +79,7 @@ function persistBestTimes() {
 
 // Create grid seed (deterministic seed string)
 function genGridSeed() {
-  return UID();
+  return makeId(4);
 }
 
 // When server authoritative timer runs, use setInterval per room
