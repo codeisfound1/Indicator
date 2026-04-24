@@ -1,337 +1,461 @@
+// public/app.js
+// Frontend vanilla JS connecting to Socket.IO, rendering SVG grids, responsive sizing, multiplayer layouts.
+// Note: code is commented and intentionally straightforward.
+
 const socket = io();
-let currentRoom = null;
-let me = {name: null, id: null};
-let grids = {}; // socketId -> {n,max,numbers,colors,nextToFind,svgEl,cellSize,fontSize}
-const defaultCellSize = 60; // 60px default
-const defaultFontSize = 25;
 
-function $(id){return document.getElementById(id)}
+// Defaults consistent with server
+const DEFAULTS = { cellSize: 60, fontCell: 25, fontTarget: 65, countdown: 600 };
 
-// Lobby UI
-const roomsList = $('rooms');
-const playerName = $('playerName');
-const nameInput = $('nameInput');
-const createEasy = $('createEasy');
-const createMedium = $('createMedium');
-const createHard = $('createHard');
-const createSuper = $('createSuper');
-const superN = $('superN');
-const countdownInput = $('countdown');
+// UI elements
+const roomsListEl = document.getElementById('rooms-list');
+const btnNewRoom = document.getElementById('btn-new-room');
+const btnRefresh = document.getElementById('btn-refresh-rooms');
+const selectLevel = document.getElementById('select-level');
+const inputN = document.getElementById('input-n');
+const gridPanel = document.getElementById('grid-panel');
+const playersList = document.getElementById('players-list');
+const roomNameEl = document.getElementById('room-name');
+const timerEl = document.getElementById('timer');
+const targetNumberEl = document.getElementById('target-number');
+const btnStart = document.getElementById('btn-start');
+const chkReady = document.getElementById('chk-ready');
+const chatMessages = document.getElementById('chat-messages');
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
 
-createEasy.onclick = ()=> createRoom('easy');
-createMedium.onclick = ()=> createRoom('medium');
-createHard.onclick = ()=> createRoom('hard');
-createSuper.onclick = ()=> createRoom('super', parseInt(superN.value,10));
+const settingCell = document.getElementById('setting-cellSize');
+const settingFontCell = document.getElementById('setting-fontCell');
+const settingFontTarget = document.getElementById('setting-fontTarget');
+const settingCountdown = document.getElementById('setting-countdown');
 
-$('chatInput').addEventListener('keydown', e=>{
-  if (e.key === 'Enter') {
-    const text = e.target.value.trim();
-    if (!text || !currentRoom) return;
-    socket.emit('sendChat',{roomId: currentRoom.id, text});
-    e.target.value = '';
+let myName = null;
+let myRoom = null;
+let myId = null;
+let roomState = null;
+let seeds = {}; // playerId -> seed
+let grids = {}; // playerId -> {n, arr}
+
+// Helpers
+function q(sel) { return document.querySelector(sel); }
+function clearChildren(el){ while(el.firstChild) el.removeChild(el.firstChild); }
+
+// Generate a deterministic pseudo-random shuffle from seed (simple mulberry32)
+function seedToRand(seed) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
   }
-});
-
-// name change
-nameInput.addEventListener('change', ()=>{
-  const name = nameInput.value.trim();
-  if (!name) return;
-  socket.emit('setName',{name});
-  playerName.textContent = name;
-});
-
-// lobby handlers
-socket.on('lobbyList', list => {
-  roomsList.innerHTML = '';
-  list.forEach(r=>{
-    const li = document.createElement('li');
-    li.textContent = `${r.name} [${r.level}] (${r.players}/4)`;
-    const btn = document.createElement('button');
-    btn.textContent = 'Join';
-    btn.onclick = ()=> socket.emit('joinRoom',{roomId: r.id});
-    li.appendChild(btn);
-    roomsList.appendChild(li);
-  });
-});
-
-socket.on('roomJoined', ({room})=>{
-  enterRoom(room);
-});
-
-socket.on('roomUpdate', room=>{
-  enterRoom(room);
-});
-
-socket.on('errorMsg', m=> alert(m));
-
-// Room UI
-$('leaveRoom').onclick = ()=> {
-  if (!currentRoom) return;
-  socket.emit('leaveRoom',{roomId: currentRoom.id});
-  leaveRoomUI();
-};
-
-$('startGame').onclick = ()=> {
-  if (!currentRoom) return;
-  socket.emit('startGame',{roomId: currentRoom.id});
-};
-
-socket.on('gameStarted', snapshot=>{
-  currentRoom = snapshot;
-  $('roomState').textContent = snapshot.state;
-  // request grid data will come in separate event via room snapshot on server
-  renderRoom(snapshot);
-});
-
-socket.on('tick', ({timeLeft})=>{
-  $('timeLeft').textContent = formatTime(timeLeft);
-});
-
-socket.on('timeUp', snapshot=>{
-  $('timeLeft').textContent = '00:00';
-  alert('Time up!');
-  renderRoom(snapshot);
-});
-
-socket.on('playerProgress', ({playerId, next})=>{
-  // update UI small badge
-  const el = document.querySelector(`#player-${playerId} .progress`);
-  if (el) el.textContent = next-1;
-});
-
-socket.on('playerFinished', ({playerId, elapsed})=>{
-  const el = document.querySelector(`#player-${playerId} .progress`);
-  if (el) el.textContent = 'Finished';
-  // show elapsed
-  const p = document.querySelector(`#player-${playerId} .time`);
-  if (p) p.textContent = formatTime(elapsed);
-});
-
-socket.on('allFinished', snapshot=>{
-  renderRoom(snapshot);
-  alert('All finished');
-});
-
-socket.on('chat', msg=>{
-  const box = $('chatBox');
-  const el = document.createElement('div');
-  el.textContent = `${msg.from}: ${msg.text}`;
-  box.appendChild(el);
-  box.scrollTop = box.scrollHeight;
-});
-
-socket.on('roomJoined', r => renderRoom(r));
-socket.on('roomUpdate', r => renderRoom(r));
-
-function enterRoom(room){
-  currentRoom = room;
-  $('lobby').classList.add('hidden');
-  $('room').classList.remove('hidden');
-  $('roomName').textContent = room.name;
-  $('roomState').textContent = room.state;
-  $('levelLabel').textContent = room.level;
-  renderPlayersList(room.players || []);
+  return function() {
+    h += 0x6D2B79F5;
+    let t = Math.imul(h ^ (h >>> 15), 1 | h);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-function leaveRoomUI(){
-  currentRoom = null;
-  $('lobby').classList.remove('hidden');
-  $('room').classList.add('hidden');
-  grids = {};
-  $('gridsContainer').innerHTML = '';
-}
-
-function renderPlayersList(players){
-  const ul = $('players');
-  ul.innerHTML = '';
-  players.forEach(p=>{
-    const li = document.createElement('li');
-    li.id = `player-${p.id}`;
-    li.innerHTML = `<div class="playerLabel">${p.name} <span class="progress">0</span> <span class="time">${p.bestTime?formatTime(p.bestTime):'-'}</span></div>`;
-    ul.appendChild(li);
-  });
-}
-
-function renderRoom(room){
-  renderPlayersList(room.players || []);
-  $('roomState').textContent = room.state;
-  $('timeLeft').textContent = formatTime(room.timeLeft || 0);
-  // best times
-  const bt = $('bestTimes'); bt.innerHTML = '';
-  Object.entries(room.bestTimes||{}).forEach(([name,val])=>{
-    const li = document.createElement('li'); li.textContent = `${name}: ${formatTime(val)}`; bt.appendChild(li);
-  });
-  // if playing, request grids from server via current snapshot: but server currently sent grids at startGame only in 'gameStarted' with snapshot including playerGrids? For simplicity, we simulate fetch by asking server to send per-player grid (not implemented separately), so the server sends 'gameStarted' earlier.
-}
-
-// helper time formatting
-function formatTime(sec){
-  if (sec == null) return '--:--';
-  const m = Math.floor(sec/60).toString().padStart(2,'0');
-  const s = Math.floor(sec%60).toString().padStart(2,'0');
-  return `${m}:${s}`;
-}
-
-// create room helper
-function createRoom(level, n){
-  const cd = parseInt(countdownInput.value,10) || undefined;
-  socket.emit('createRoom',{level, n, countdown: cd});
-}
-
-// Receiving initial room snapshot (when join/create)
-socket.on('roomJoined', ({room})=>{
-  enterRoom(room);
-});
-
-// The server doesn't currently send actual per-player grids content in this simplified client; we'll request them by listening to a 'gameStarted' event that includes necessary playerGrids. For demonstration we'll handle a client-side generation when receiving gameStarted.
-socket.on('gameStarted', ({id, players, timeLeft, level})=>{
-  // We'll request a lightweight 'gridData' from server by asking server to include it; but to keep client working with server above, assume server sends playerGrids embedded in snapshot
-});
-
-// For simulation: we handle grid rendering when server sends 'gameStarted' with full snapshot including playerGrids (server currently includes playerGrids in memory but not emitted fully — let's instead ask server to emit full snapshot via 'roomUpdate' that contains playerGrids).
-socket.on('roomUpdate', room=>{
-  if (room.state === 'playing' && room.playerGrids) {
-    // we expect server to include playerGrids keyed by playerId
-    renderGrids(room);
+// Generate grid numbers 1..n^2 shuffled
+function genGrid(seed, n) {
+  const rand = seedToRand(seed);
+  const total = n * n;
+  const arr = Array.from({length: total}, (_,i)=>i+1);
+  // Fisher-Yates
+  for (let i = arr.length -1; i>0; i--) {
+    const j = Math.floor(rand() * (i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
   }
-});
+  return arr;
+}
 
-// But because server above emits 'gameStarted' with roomSnapshot only, and we attached playerGrids there, add handler:
-socket.on('gameStarted', room=>{
-  renderGrids(room);
-  $('timeLeft').textContent = formatTime(room.timeLeft);
-  // set target number for local player
-  if (grids[socket.id]) updateTargetNumber(grids[socket.id].nextToFind);
-});
+// Color helpers: HSL palette with min hue distance and readable text color
+function genDistinctColors(count) {
+  const colors = [];
+  const step = Math.floor(360 / count);
+  for (let i=0;i<count;i++){
+    const h = (i * step + Math.floor(Math.random()*step)) % 360;
+    colors.push(`hsl(${h} ${60}% ${70}%)`); // use space-separated modern hsl to allow % in luminance calc
+  }
+  return colors;
+}
+function textColorFor(bgHsl) {
+  // convert "hsl(H S% L%)" -> get L perc
+  try {
+    const m = bgHsl.match(/hsl\((\d+)\s+(\d+)%\s+(\d+)%\)/);
+    const l = parseInt(m[3],10)/100;
+    return l > 0.6 ? '#111' : '#fff';
+  } catch(e){
+    return '#111';
+  }
+}
 
-// The renderGrids function: build responsive SVG grids per player
-function renderGrids(room){
-  const container = $('gridsContainer');
-  container.innerHTML = '';
-  grids = {};
-  // assume server included playerGrids in payload at key playerGrids (matching server implementation)
-  const playerGrids = room.playerGrids || {};
-  const playerIds = Object.keys(playerGrids);
+// Responsive cell size calculation
+function computeCellSize(containerWidth, containerHeight, n, playersCount) {
+  // ensure grid fits in container with header/footer margins
+  // simple: choose min of floor(containerWidth/n) and floor(containerHeight/n)
+  const w = Math.floor(containerWidth / n);
+  const h = Math.floor(containerHeight / n);
+  return Math.max(20, Math.min(w, h));
+}
 
-  // compute layout: if 4 players -> 2x2 fixed
-  let cols = 1;
-  if (playerIds.length === 4) cols = 2;
-  else if (playerIds.length === 3) cols = 2;
-  else if (playerIds.length === 2) cols = 2;
-  else cols = 1;
+// Render a player's grid panel (SVG)
+function renderPlayerGrid(playerId, playerName, seed, n, isMe, state) {
+  // Each player grid wrapper
+  let wrapper = document.getElementById('grid-'+playerId);
+  if (!wrapper) {
+    wrapper = document.createElement('div');
+    wrapper.className = 'player-grid';
+    wrapper.id = 'grid-'+playerId;
+    gridPanel.appendChild(wrapper);
+  }
+  clearChildren(wrapper);
 
-  playerIds.forEach(pid=>{
-    const pg = playerGrids[pid];
-    const wrapper = document.createElement('div');
-    wrapper.className = 'gridWrap';
-    wrapper.style.flex = `1 1 ${Math.floor(100/cols)-2}%`;
-    const playerLabel = document.createElement('div');
-    playerLabel.className = 'playerLabel';
-    const pl = room.players.find(p=>p.id===pid);
-    playerLabel.textContent = pl ? pl.name : pid;
-    wrapper.appendChild(playerLabel);
+  const header = document.createElement('div');
+  header.className = 'pg-header';
+  header.textContent = playerName + (isMe ? ' (You)' : '');
+  wrapper.appendChild(header);
 
-    // responsive cell size calculation: try to fit in available width
-    const availableWidth = Math.max(200, window.innerWidth * 0.45 / cols);
-    const n = pg.n;
-    let cellSize = 60;
-    // adjust cell size so that grid fits within available width
-    const maxGridWidth = Math.min(availableWidth, 800);
-    const calcCell = Math.floor(maxGridWidth / n) - 4;
-    if (calcCell > 30) cellSize = Math.min(calcCell, 80);
-    else cellSize = Math.max(calcCell, 24);
+  // Determine available size for this grid
+  const rect = wrapper.getBoundingClientRect();
+  // fallback to main area
+  const containerWidth = Math.max(200, rect.width || (gridPanel.clientWidth / Math.max(1, Object.keys(roomState.players||{}).length)));
+  const containerHeight =  Math.max(200, window.innerHeight - 200);
+  const playersCount = Object.keys(roomState.players || {}).length || 1;
+  const baseCell = isNaN(parseInt(settingCell.value)) ? DEFAULTS.cellSize : parseInt(settingCell.value);
+  // compute target cell size to ensure full grid visible
+  const cell = computeCellSize(containerWidth - 20, containerHeight - 120, n, playersCount);
+  const cellSize = Math.min(baseCell, cell);
 
-    const svg = createGridSVG(pg.n, pg.numbers, pg.colors, cellSize, defaultFontSize, pid);
-    wrapper.appendChild(svg);
-    container.appendChild(wrapper);
+  const svgW = cellSize * n;
+  const svgH = cellSize * n;
 
-    grids[pid] = {n:pg.n, max:pg.max, numbers:pg.numbers, colors:pg.colors, nextToFind:pg.nextToFind, svgEl:svg, cellSize, fontSize: defaultFontSize};
-    // attach click handler
-    svg.addEventListener('click', e=>{
-      const target = e.target;
-      if (!target.dataset?.idx) return;
-      const idx = parseInt(target.dataset.idx,10);
-      // send selection
-      socket.emit('cellSelected',{roomId: room.id, cellIndex: idx});
+  // create SVG
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', svgW);
+  svg.setAttribute('height', svgH);
+  svg.classList.add('grid-canvas');
+  svg.style.display = 'block';
+  svg.style.touchAction = 'manipulation';
+
+  // prepare shuffled numbers
+  const arr = genGrid(seed, n);
+  // store grid arr for this player
+  grids[playerId] = { n, arr };
+
+  // generate distinct colors per cell
+  const colors = genDistinctColors(arr.length);
+
+  // render cells
+  for (let i=0;i<arr.length;i++) {
+    const row = Math.floor(i / n);
+    const col = i % n;
+    const x = col * cellSize;
+    const y = row * cellSize;
+    const g = document.createElementNS(svgNS, 'g');
+    g.setAttribute('transform', `translate(${x},${y})`);
+    const color = colors[i];
+    const rectEl = document.createElementNS(svgNS, 'rect');
+    rectEl.setAttribute('x', 0);
+    rectEl.setAttribute('y', 0);
+    rectEl.setAttribute('width', cellSize);
+    rectEl.setAttribute('height', cellSize);
+    rectEl.setAttribute('fill', color);
+    rectEl.setAttribute('rx', Math.max(2, cellSize*0.06));
+    rectEl.setAttribute('data-num', arr[i]);
+    rectEl.style.cursor = 'pointer';
+    // text
+    const text = document.createElementNS(svgNS, 'text');
+    text.setAttribute('x', cellSize/2);
+    text.setAttribute('y', cellSize/2 + (parseInt(settingFontCell.value||DEFAULTS.fontCell)/3));
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('font-size', (settingFontCell.value||DEFAULTS.fontCell));
+    text.setAttribute('fill', textColorFor(color));
+    text.textContent = arr[i];
+
+    // overlay for selected
+    const overlay = document.createElementNS(svgNS, 'rect');
+    overlay.setAttribute('x', 0);
+    overlay.setAttribute('y', 0);
+    overlay.setAttribute('width', cellSize);
+    overlay.setAttribute('height', cellSize);
+    overlay.setAttribute('fill', 'rgba(0,0,0,0)');
+    overlay.style.pointerEvents = 'none'; // clicks handled by rect
+
+    // attach click handler only for my grid
+    rectEl.addEventListener('click', (e) => {
+      if (!myRoom || myId !== playerId) return;
+      // find number
+      const num = parseInt(rectEl.getAttribute('data-num'), 10);
+      socket.emit('cell_selected', { roomId: myRoom.id, playerId: myId, cellNumber: num });
     });
+
+    g.appendChild(rectEl);
+    g.appendChild(text);
+    g.appendChild(overlay);
+    svg.appendChild(g);
+  }
+
+  wrapper.appendChild(svg);
+
+  // mark selected numbers if known
+  const pState = roomState.players[playerId];
+  if (pState && pState.selected) {
+    // for each selected number, find the corresponding rect and overlay
+    const selectedSet = new Set(pState.selected);
+    const texts = svg.querySelectorAll('text');
+    texts.forEach(t => {
+      const v = parseInt(t.textContent,10);
+      if (selectedSet.has(v)) {
+        // add strike/overlay
+        const parentG = t.parentNode;
+        const selRect = document.createElementNS(svgNS, 'rect');
+        selRect.setAttribute('x', 0);
+        selRect.setAttribute('y', 0);
+        selRect.setAttribute('width', cellSize);
+        selRect.setAttribute('height', cellSize);
+        selRect.setAttribute('fill', 'rgba(0,0,0,0.2)');
+        parentG.appendChild(selRect);
+      }
+    });
+  }
+
+  return wrapper;
+}
+
+// Layout player grids based on players count
+function layoutGrids() {
+  const ids = Object.keys(roomState.players || {});
+  const count = ids.length;
+  clearChildren(gridPanel);
+  if (count === 0) return;
+  // layout logic:
+  // 1 player: big single
+  // 2 players: two columns (or rows if narrow)
+  // 3 players: two top, one bottom center
+  // 4 players: 2x2 grid
+  const width = gridPanel.clientWidth;
+  const isPortrait = window.innerWidth < window.innerHeight;
+
+  if (count === 1) {
+    const pid = ids[0];
+    const p = roomState.players[pid];
+    const n = p.n || computeNFromSettings(roomState.settings);
+    renderPlayerGrid(pid, p.name, seeds[pid], n, pid===myId, roomState);
+    const el = document.getElementById('grid-'+pid);
+    el.style.width = '100%';
+  } else if (count === 2) {
+    ids.forEach(pid => {
+      const p = roomState.players[pid];
+      const n = p.n || computeNFromSettings(roomState.settings);
+      const el = renderPlayerGrid(pid, p.name, seeds[pid], n, pid===myId, roomState);
+      el.style.width = isPortrait ? '100%' : '48%';
+    });
+  } else if (count === 3) {
+    // two on top row, one centered bottom
+    for (let i=0;i<ids.length;i++){
+      const pid = ids[i];
+      const p = roomState.players[pid];
+      const n = p.n || computeNFromSettings(roomState.settings);
+      const el = renderPlayerGrid(pid, p.name, seeds[pid], n, pid===myId, roomState);
+      if (i < 2) el.style.width = '48%';
+      else {
+        el.style.width = '66%';
+        el.style.margin = '0 auto';
+      }
+    }
+  } else {
+    // 4 players => 2x2
+    ids.forEach(pid => {
+      const p = roomState.players[pid];
+      const n = p.n || computeNFromSettings(roomState.settings);
+      const el = renderPlayerGrid(pid, p.name, seeds[pid], n, pid===myId, roomState);
+      el.style.width = '48%';
+    });
+  }
+}
+
+// compute n from room settings
+function computeNFromSettings(settings) {
+  if (!settings) return 5;
+  if (settings.level === 'easy') return 5;
+  if (settings.level === 'medium') return 7;
+  if (settings.level === 'hard') return 10;
+  if (settings.level === 'extreme') return Math.max(10, parseInt(settings.n) || 10);
+  return 5;
+}
+
+// Update players list UI
+function updatePlayersList() {
+  clearChildren(playersList);
+  if (!roomState) return;
+  for (const pid in roomState.players) {
+    const p = roomState.players[pid];
+    const li = document.createElement('li');
+    li.textContent = p.name + (pid===myId?' (You)':'') + (p.ready?' ✅':'');
+    playersList.appendChild(li);
+  }
+  // Host control: enable start if host and all ready
+  btnStart.disabled = !(myId && roomState.hostId === myId && Object.values(roomState.players || {}).every(p=>p.ready));
+}
+
+// Format time
+function fmtTime(sec) {
+  if (sec == null) return '--:--';
+  const mm = String(Math.floor(sec/60)).padStart(2,'0');
+  const ss = String(sec%60).padStart(2,'0');
+  return `${mm}:${ss}`;
+}
+
+// Socket event handlers
+socket.on('room_list_update', (rooms) => {
+  clearChildren(roomsListEl);
+  rooms.forEach(r => {
+    const li = document.createElement('li');
+    li.textContent = `${r.name} — ${r.players} players — ${r.settings.level}`;
+    li.style.cursor = 'pointer';
+    li.addEventListener('click', () => {
+      // join room
+      myName = prompt('Enter your name (or leave blank for random):') || undefined;
+      socket.emit('join_room', { roomId: r.id, playerName: myName }, (res) => {
+        if (!res || !res.ok) return alert('Could not join: '+(res && res.error));
+        myRoom = { id: r.id };
+        myId = res.playerId;
+        seeds[myId] = res.seed;
+      });
+    });
+    roomsListEl.appendChild(li);
+  });
+});
+
+socket.on('room_update', (room) => {
+  // transform into convenient map
+  roomState = {
+    id: room.id,
+    name: room.name,
+    settings: room.settings,
+    players: {}
+  };
+  // need to keep hostId (server does not include; ask server for it? server includes? room_summary didn't include hostId—assume not)
+  // We'll request room list to keep consistent
+  // Build players map (server emitted players as array)
+  (room.players||[]).forEach(p=>{
+    roomState.players[p.id] = {
+      id: p.id,
+      name: p.name,
+      ready: p.ready,
+      finished: p.finished,
+      n: computeNFromSettings(room.settings)
+    };
   });
 
-  // set target for local player (socket.id)
-  if (grids[socket.id]) updateTargetNumber(grids[socket.id].nextToFind);
-}
+  myRoom = { id: room.id };
+  roomNameEl.textContent = room.name;
+  updatePlayersList();
+  layoutGrids();
+});
 
-function createGridSVG(n, numbers, colors, cellSize, fontSize, ownerId){
-  const svgNS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNS,'svg');
-  svg.setAttribute('width', cellSize * n + 2);
-  svg.setAttribute('height', cellSize * n + 2);
-  svg.classList.add('gridSVG');
+socket.on('game_start', (payload) => {
+  // payload.gridSeeds maps playerId->seed
+  seeds = payload.gridSeeds || {};
+  // set up roomState players n
+  // request server room_update will arrive; keep seeds
+  // show initial target number as 1
+  targetNumberEl.textContent = '1';
+});
 
-  for (let r=0;r<n;r++){
-    for (let c=0;c<n;c++){
-      const idx = r*n + c;
-      const rect = document.createElementNS(svgNS,'rect');
-      rect.setAttribute('x', c*cellSize);
-      rect.setAttribute('y', r*cellSize);
-      rect.setAttribute('width', cellSize);
-      rect.setAttribute('height', cellSize);
-      rect.setAttribute('fill', colors[idx]);
-      rect.classList.add('cellRect');
-      rect.dataset.idx = idx;
-      svg.appendChild(rect);
-
-      const text = document.createElementNS(svgNS,'text');
-      text.setAttribute('x', c*cellSize + cellSize/2);
-      text.setAttribute('y', r*cellSize + cellSize/2 + fontSize/3);
-      text.setAttribute('text-anchor','middle');
-      text.setAttribute('font-size', fontSize);
-      text.setAttribute('fill','#000');
-      text.classList.add('cellText');
-      text.textContent = numbers[idx];
-      svg.appendChild(text);
+socket.on('game_state', (payload) => {
+  // payload.players: array of {id, selected}
+  if (!roomState) return;
+  payload.players.forEach(p=>{
+    if (!roomState.players[p.id]) {
+      roomState.players[p.id] = { id: p.id, name: p.name || 'Player', n: computeNFromSettings(roomState.settings) };
     }
+    roomState.players[p.id].selected = p.selected;
+  });
+  timerEl.textContent = fmtTime(payload.timeLeft);
+  // update target for me
+  const me = roomState.players[myId];
+  if (me) {
+    const next = (me.selected ? me.selected.length + 1 : 1);
+    targetNumberEl.textContent = next;
   }
-  return svg;
-}
-
-socket.on('cellCorrect', ({cellIndex, next})=>{
-  // mark cell visually for this client
-  const g = grids[socket.id];
-  if (!g) return;
-  const svg = g.svgEl;
-  const rect = svg.querySelector(`rect[data-idx='${cellIndex}']`);
-  if (rect) {
-    rect.setAttribute('stroke','limegreen');
-    rect.setAttribute('stroke-width','4');
-  }
-  g.nextToFind = next;
-  updateTargetNumber(next);
+  layoutGrids();
 });
 
-socket.on('cellWrong', ({cellIndex, expected})=>{
-  // flash red border
-  const g = grids[socket.id];
-  if (!g) return;
-  const svg = g.svgEl;
-  const rect = svg.querySelector(`rect[data-idx='${cellIndex}']`);
-  if (rect) {
-    rect.setAttribute('stroke','crimson');
-    rect.setAttribute('stroke-width','4');
-    setTimeout(()=>{ rect.setAttribute('stroke','#fff'); rect.setAttribute('stroke-width','2'); }, 400);
+socket.on('player_finished', (payload) => {
+  const pid = payload.playerId;
+  const ft = payload.finishTime;
+  // update UI: show toast, update players list
+  const el = document.getElementById('grid-'+pid);
+  if (el) {
+    const note = document.createElement('div');
+    note.textContent = ft == null ? 'Time up' : `Finished: ${fmtTime(ft)}`;
+    el.appendChild(note);
   }
 });
 
-function updateTargetNumber(next){
-  $('targetNumber').textContent = next;
-}
-
-// initial player name display
-socket.on('connect', ()=>{
-  me.id = socket.id;
-  $('playerName').textContent = 'Guest';
+socket.on('best_time_update', (payload) => {
+  // simple alert / UI update
+  console.log('best_time_update', payload);
 });
 
-// small UX helpers
-window.addEventListener('resize', ()=>{
-  // Re-render grids to adapt sizes if needed
+socket.on('chat_message', (msg) => {
+  const d = document.createElement('div');
+  d.className = 'msg';
+  d.textContent = `[${new Date(msg.ts).toLocaleTimeString()}] ${msg.playerName}: ${msg.text}`;
+  chatMessages.appendChild(d);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 });
+
+socket.on('player_kicked', (payload) => {
+  const d = document.createElement('div');
+  d.className = 'msg';
+  d.textContent = `System: Player ${payload.playerId} kicked: ${payload.reason}`;
+  chatMessages.appendChild(d);
+});
+
+// UI interactions
+btnNewRoom.addEventListener('click', () => {
+  myName = prompt('Enter your name (or leave blank for random):') || undefined;
+  const level = selectLevel.value;
+  const n = inputN.value && parseInt(inputN.value,10);
+  const settings = {
+    cellSize: parseInt(settingCell.value) || DEFAULTS.cellSize,
+    fontCell: parseInt(settingFontCell.value) || DEFAULTS.fontCell,
+    fontTarget: parseInt(settingFontTarget.value) || DEFAULTS.fontTarget,
+    countdown: parseInt(settingCountdown.value) || DEFAULTS.countdown
+  };
+  socket.emit('create_room', { level, n, playerName: myName, settings }, (res) => {
+    if (!res || !res.ok) return alert('Could not create room');
+    myRoom = { id: res.roomId };
+    myId = socket.id;
+    // seed will be provided by room_update + game_start when started
+  });
+});
+
+btnRefresh.addEventListener('click', () => socket.emit('get_rooms'));
+
+btnStart.addEventListener('click', () => {
+  if (!myRoom) return alert('No room');
+  socket.emit('start_game', { roomId: myRoom.id }, (res) => {
+    if (!res || !res.ok) alert('Could not start');
+  });
+});
+
+chkReady.addEventListener('change', () => {
+  socket.emit('set_ready', { roomId: myRoom ? myRoom.id : null, ready: chkReady.checked });
+});
+
+chatForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = chatInput.value.trim();
+  if (!text || !myRoom) return;
+  socket.emit('send_chat', { roomId: myRoom.id, message: text });
+  chatInput.value = '';
+});
+
+// initial fetch
+socket.emit('get_rooms');
+
+// window resize re-layout
+window.addEventListener('resize', () => { if (roomState) layoutGrids(); });
