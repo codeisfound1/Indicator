@@ -20,13 +20,14 @@
       <button id="createBtn">Tạo Room</button>
       <input id="joinRoomId" placeholder="Mã room" />
       <button id="joinBtn">Tham gia Room</button>
+      <button id="listRoomsBtn">Danh sách phòng</button>
       <div id="roomsInfo"></div>
     </div>
 
     <div id="gameArea" style="display:none">
       <div id="topBar">
         <div id="roomInfo"></div>
-        <div id="timer">Time: <span id="timeLeft">600</span>s</div>
+        <div id="timer">Time left: <span id="timeLeft">600</span>s</div>
         <div id="target">Find: <span id="targetNumber" style="font-size:65px"></span></div>
         <div id="localStats">Elapsed: <span id="elapsed">0</span>s | Best: <span id="best">--</span>s</div>
       </div>
@@ -39,8 +40,10 @@
       </div>
 
       <div id="chatArea">
-        <div id="chatHeader"></div>
+        <div id="chatHeader">Chat</div>
         <div id="chatLog"></div>
+        <input id="chatInput" placeholder="Gõ tin nhắn..." />
+        <button id="chatSend">Gửi</button>
       </div>
     </div>
   </div>
