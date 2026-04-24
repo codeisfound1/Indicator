@@ -12,17 +12,14 @@ app.use(express.static('public'));
 const MAX_PLAYERS = 4;
 const DEFAULT_COUNTDOWN = 600; // seconds
 
-// In-memory store: rooms map
-const rooms = {}; // roomId -> { id, name, hostId, level, players: {socketId: player}, createdAt, bestTimes: {playerName: bestSec}, countdown, state }
+const rooms = {}; // in-memory
 
 function makeRoomName() {
   return shortid.generate().slice(0,6);
 }
-
 function makePlayerName() {
   return 'P' + Math.random().toString(36).slice(2,7);
 }
-
 function createRoom(hostSocketId, opts = {}) {
   const id = shortid.generate().slice(0,6);
   const name = makeRoomName();
@@ -31,10 +28,14 @@ function createRoom(hostSocketId, opts = {}) {
     hostId: hostSocketId,
     level: opts.level || 'easy',
     countdown: opts.countdown || DEFAULT_COUNTDOWN,
-    players: {}, // socketId -> {id, name, color, ready, bestTime}
+    players: {}, // socketId -> {id, name, bestTime}
     createdAt: Date.now(),
-    state: 'waiting', // waiting|playing|finished
-    bestTimes: {}, // playerName -> bestSeconds
+    state: 'waiting',
+    bestTimes: {},
+    playerGrids: null,
+    timer: null,
+    timeLeft: opts.countdown || DEFAULT_COUNTDOWN,
+    nOverride: opts.nOverride || null
   };
   rooms[id] = room;
   return room;
@@ -52,10 +53,9 @@ function levelConfig(level, nOverride) {
 }
 
 io.on('connection', socket => {
-  // create quick player object
+  console.log('connect', socket.id);
   socket.data.name = makePlayerName();
 
-  // send lobby list
   socket.emit('lobbyList', Object.values(rooms).map(r => ({
     id: r.id, name: r.name, players: Object.keys(r.players).length, level: r.level
   })));
@@ -64,9 +64,10 @@ io.on('connection', socket => {
     const room = createRoom(socket.id, {level, countdown});
     room.level = level || 'easy';
     room.nOverride = n;
+    room.timeLeft = countdown || DEFAULT_COUNTDOWN;
     socket.join(room.id);
-    room.players[socket.id] = {id: socket.id, name: socket.data.name, color: null, ready: false, bestTime: null};
-    socket.emit('roomJoined', {room});
+    room.players[socket.id] = {id: socket.id, name: socket.data.name, bestTime: null};
+    socket.emit('roomJoined', {room: roomSnapshot(room)});
     io.emit('lobbyList', Object.values(rooms).map(r => ({id: r.id, name: r.name, players: Object.keys(r.players).length, level: r.level})));
   });
 
@@ -75,7 +76,7 @@ io.on('connection', socket => {
     if (!room) return socket.emit('errorMsg', 'Room not found');
     if (Object.keys(room.players).length >= MAX_PLAYERS) return socket.emit('errorMsg','Room full');
     socket.join(room.id);
-    room.players[socket.id] = {id: socket.id, name: socket.data.name, color: null, ready: false, bestTime: null};
+    room.players[socket.id] = {id: socket.id, name: socket.data.name, bestTime: null};
     io.to(room.id).emit('roomUpdate', roomSnapshot(room));
     io.emit('lobbyList', Object.values(rooms).map(r => ({id: r.id, name: r.name, players: Object.keys(r.players).length, level: r.level})));
   });
@@ -92,36 +93,44 @@ io.on('connection', socket => {
     const room = rooms[roomId];
     if (!room) return;
     if (room.hostId !== socket.id) return;
-    // start game: build per-player grids and assign colors
+    if (room.state === 'playing') return;
+
     room.state = 'playing';
     room.startAt = Date.now();
     room.timeLeft = room.countdown || DEFAULT_COUNTDOWN;
+
     const cfg = levelConfig(room.level, room.nOverride);
     const n = cfg.n;
     const max = cfg.max;
-    // generate random colors for each cell per player, and unique number sequences 1..max
+
     room.playerGrids = {};
-    Object.values(room.players).forEach(p => {
+
+    Object.keys(room.players).forEach(pid=>{
       const numbers = Array.from({length: max}, (_,i)=>i+1);
-      // shuffle numbers
-      for (let i = numbers.length-1;i>0;i--){
+      for (let i = numbers.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random()*(i+1));
         [numbers[i], numbers[j]] = [numbers[j], numbers[i]];
       }
-      // take first n*n numbers
       const gridNums = numbers.slice(0, n*n);
-      // shuffling colors for each cell: ensure different from text color (we'll use black text)
-      const colors = gridNums.map(() => randomColor());
-      room.playerGrids[p.id] = {n, max, numbers: gridNums, colors, nextToFind: 1, elapsed: 0};
+      const colors = gridNums.map(()=> randomColor());
+      room.playerGrids[pid] = {n, max, numbers: gridNums, colors, nextToFind: 1, elapsed: 0};
     });
-    io.to(room.id).emit('gameStarted', roomSnapshot(room));
-    // start a countdown interval per room
+
+    // debug logs
+    console.log('Starting game in room', room.id, 'players', Object.keys(room.players));
+    console.log('playerGrids keys', Object.keys(room.playerGrids));
+
+    // emit gameStarted with full data including playerGrids
+    io.to(room.id).emit('gameStarted', { ...roomSnapshot(room), playerGrids: room.playerGrids });
+
+    // start countdown
+    if (room.timer) clearInterval(room.timer);
     room.timer = setInterval(()=>{
       room.timeLeft--;
       if (room.timeLeft <= 0) {
         clearInterval(room.timer);
         room.state = 'finished';
-        io.to(room.id).emit('timeUp', roomSnapshot(room));
+        io.to(room.id).emit('timeUp', { ...roomSnapshot(room), playerGrids: room.playerGrids });
       } else {
         io.to(room.id).emit('tick', {timeLeft: room.timeLeft});
       }
@@ -134,22 +143,18 @@ io.on('connection', socket => {
     const val = pg.numbers[cellIndex];
     if (val === pg.nextToFind) {
       pg.nextToFind++;
-      // color feedback will be handled on client
       io.to(socket.id).emit('cellCorrect', {cellIndex, next: pg.nextToFind});
-      // broadcast progress to room for realtime best/leaderboard
       io.to(room.id).emit('playerProgress', {playerId: socket.id, next: pg.nextToFind});
       if (pg.nextToFind > pg.max) {
-        // finished by this player
         const elapsed = (room.countdown || DEFAULT_COUNTDOWN) - room.timeLeft;
         room.players[socket.id].bestTime = Math.min(room.players[socket.id].bestTime||Infinity, elapsed);
         room.bestTimes[socket.data.name] = Math.min(room.bestTimes[socket.data.name]||Infinity, elapsed);
         io.to(room.id).emit('playerFinished', {playerId: socket.id, elapsed});
-        // mark player's grid finished; check if all finished or stop when all done
         const allFinished = Object.keys(room.playerGrids).every(pid => room.playerGrids[pid].nextToFind > room.playerGrids[pid].max);
         if (allFinished) {
           clearInterval(room.timer);
           room.state = 'finished';
-          io.to(room.id).emit('allFinished', roomSnapshot(room));
+          io.to(room.id).emit('allFinished', { ...roomSnapshot(room), playerGrids: room.playerGrids });
         }
       }
     } else {
@@ -169,22 +174,18 @@ io.on('connection', socket => {
   });
 
   socket.on('disconnect', reason => {
-    // remove from any room
+    console.log('disconnect', socket.id);
     Object.values(rooms).forEach(room=>{
       if (room.players[socket.id]) {
-        // remove player
         delete room.players[socket.id];
-        delete room.playerGrids?.[socket.id];
+        if (room.playerGrids && room.playerGrids[socket.id]) delete room.playerGrids[socket.id];
         io.to(room.id).emit('roomUpdate', roomSnapshot(room));
-        // if host left, pick new host
         if (room.hostId === socket.id) {
           const remaining = Object.keys(room.players);
           room.hostId = remaining[0] || null;
         }
-        // auto-kick logic: if disconnected for more than X -> here we'll immediately remove; to implement delayed kick, you'd store timestamp and set timer
-        // if no players left -> remove room
         if (Object.keys(room.players).length === 0) {
-          clearInterval(room.timer);
+          if (room.timer) clearInterval(room.timer);
           delete rooms[room.id];
           io.emit('lobbyList', Object.values(rooms).map(r => ({id: r.id, name: r.name, players: Object.keys(r.players).length, level: r.level})));
         }
@@ -197,11 +198,11 @@ io.on('connection', socket => {
     if (!room) return;
     if (room.players[socket.id]) {
       delete room.players[socket.id];
-      delete room.playerGrids?.[socket.id];
+      if (room.playerGrids && room.playerGrids[socket.id]) delete room.playerGrids[socket.id];
       socket.leave(room.id);
       io.to(room.id).emit('roomUpdate', roomSnapshot(room));
       if (Object.keys(room.players).length === 0) {
-        clearInterval(room.timer);
+        if (room.timer) clearInterval(room.timer);
         delete rooms[room.id];
       } else {
         if (room.hostId === socket.id) {
@@ -214,7 +215,11 @@ io.on('connection', socket => {
 
   function roomSnapshot(room) {
     return {
-      id: room.id, name: room.name, hostId: room.hostId, level: room.level, state: room.state,
+      id: room.id,
+      name: room.name,
+      hostId: room.hostId,
+      level: room.level,
+      state: room.state,
       players: Object.values(room.players).map(p => ({id: p.id, name: p.name, bestTime: p.bestTime})),
       timeLeft: room.timeLeft || room.countdown || DEFAULT_COUNTDOWN,
       bestTimes: room.bestTimes || {}
@@ -222,7 +227,6 @@ io.on('connection', socket => {
   }
 
   function randomColor() {
-    // ensure reasonably bright colors
     const r = Math.floor(80 + Math.random()*175);
     const g = Math.floor(80 + Math.random()*175);
     const b = Math.floor(80 + Math.random()*175);
