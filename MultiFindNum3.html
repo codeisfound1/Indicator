@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Grid Finder SVG</title>
+<style>
+  :root{
+    --cell-size:60px; /* default, can be changed via UI */
+    --cell-font:25px;
+    --target-font:65px;
+  }
+  html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;background:#111;color:#eee}
+  .app{display:flex;flex-direction:column;height:100%;}
+  header{padding:12px;display:flex;gap:12px;align-items:center;background:#0f1720}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  select,input,button{padding:6px 8px;border-radius:6px;border:1px solid #334155;background:#0b1220;color:#fff}
+  label{font-size:13px;color:#9aa7b2}
+  main{flex:1;display:flex;flex-direction:column;padding:12px;gap:10px;overflow:auto}
+  .top-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .target-box{display:flex;flex-direction:column;align-items:center;justify-content:center;background:#071022;padding:12px;border-radius:8px;min-width:160px}
+  .target-number{font-weight:700;font-size:var(--target-font);line-height:1}
+  .timers{display:flex;gap:10px;align-items:center}
+  .timer{background:#071022;padding:8px;border-radius:8px;text-align:center;min-width:120px}
+  .grids-wrap{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;justify-content:center}
+  .grid-player{background:#071722;padding:10px;border-radius:8px;display:flex;flex-direction:column;gap:8px}
+  .grid-title{font-weight:600;margin-bottom:4px}
+  .svg-wrap{overflow:auto}
+  svg{display:block}
+  .small{font-size:12px;color:#9aa7b2}
+  footer{padding:10px;text-align:center;font-size:12px;color:#9aa7b2}
+  /* responsive: reduce target font on small screens */
+  @media (max-width:420px){
+    :root{--target-font:48px}
+    .target-box{min-width:120px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="controls">
+      <label class="small">Cấp độ
+        <select id="level">
+          <option value="easy">Dễ 5×5</option>
+          <option value="medium">Trung bình 7×7</option>
+          <option value="hard">Khó 10×10</option>
+          <option value="insane">Siêu khó (tùy)</option>
+        </select>
+      </label>
+
+      <label class="small">Siêu khó n (>=1000)
+        <input id="insane-n" type="number" min="1000" value="1000" style="width:120px" />
+      </label>
+
+      <label class="small">Kích thước ô (px)
+        <input id="cell-size" type="number" min="20" value="60" style="width:80px" />
+      </label>
+
+      <label class="small">Font ô (px)
+        <input id="cell-font" type="number" min="10" value="25" style="width:80px" />
+      </label>
+
+      <label class="small">Font target (px)
+        <input id="target-font" type="number" min="30" value="65" style="width:80px" />
+      </label>
+
+      <label class="small">Countdown (s)
+        <input id="countdown" type="number" min="10" value="600" style="width:100px" />
+      </label>
+
+      <label class="small">Multiplayer
+        <select id="multiplayer">
+          <option value="0">Solo</option>
+          <option value="2">2 Người</option>
+        </select>
+      </label>
+
+      <button id="startBtn">Bắt đầu</button>
+      <button id="resetBtn">Reset</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="top-row">
+      <div class="target-box">
+        <div class="small">Số cần tìm</div>
+        <div id="targetNumber" class="target-number">—</div>
+      </div>
+
+      <div class="timers">
+        <div class="timer">
+          <div class="small">Đếm ngược</div>
+          <div id="countdownDisplay">10:00</div>
+        </div>
+        <div class="timer">
+          <div class="small">Thời gian hiện tại</div>
+          <div id="elapsedDisplay">00:00</div>
+        </div>
+        <div class="timer">
+          <div class="small">Best time (session)</div>
+          <div id="bestDisplay">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grids-wrap" id="gridsWrap">
+      <!-- player grids go here -->
+    </div>
+  </main>
+
+  <footer>Touch / click ô đúng theo thứ tự từ 1 → n. Mỗi ô có màu nền khác màu chữ.</footer>
+</div>
+
+<script>
+/* CONFIG / Helpers */
+const DEFAULTS = {
+  easy: { rows:5, cols:5, n:25 },
+  medium: { rows:7, cols:7, n:49 },
+  hard: { rows:10, cols:10, n:100 },
+};
+const rand = (min,max)=> Math.floor(Math.random()*(max-min+1))+min;
+const hueRand = ()=> Math.floor(Math.random()*360);
+const contrastColor = (h,s,l)=> {
+  // return black or white depending on lightness
+  return l>60? '#000':'#fff';
+}
+function formatTimeSec(sec){
+  if(sec<0) sec = 0;
+  const mm = Math.floor(sec/60).toString().padStart(2,'0');
+  const ss = Math.floor(sec%60).toString().padStart(2,'0');
+  return `${mm}:${ss}`;
+}
+
+/* State */
+let state = {
+  players: 1,
+  grids: [], // each: {rows,cols,n,order:Array,svg,foundIndex,currentTarget,startTs,elapsed,best}
+  countdownTotal: 600,
+  countdownRemaining: 600,
+  countdownTimer: null,
+  elapsedTimer: null,
+  running: false,
+};
+
+/* UI refs */
+const levelEl = document.getElementById('level');
+const insaneNEl = document.getElementById('insane-n');
+const cellSizeEl = document.getElementById('cell-size');
+const cellFontEl = document.getElementById('cell-font');
+const targetFontEl = document.getElementById('target-font');
+const countdownEl = document.getElementById('countdown');
+const multiplayerEl = document.getElementById('multiplayer');
+const startBtn = document.getElementById('startBtn');
+const resetBtn = document.getElementById('resetBtn');
+const gridsWrap = document.getElementById('gridsWrap');
+const targetNumberEl = document.getElementById('targetNumber');
+const countdownDisplay = document.getElementById('countdownDisplay');
+const elapsedDisplay = document.getElementById('elapsedDisplay');
+const bestDisplay = document.getElementById('bestDisplay');
+
+/* Main functions */
+function buildGrids(){
+  gridsWrap.innerHTML = '';
+  state.grids = [];
+  const players = state.players;
+  for(let p=0;p<players;p++){
+    const container = document.createElement('div');
+    container.className = 'grid-player';
+    container.style.minWidth = '220px';
+    container.style.maxWidth = '100%';
+
+    const title = document.createElement('div');
+    title.className = 'grid-title';
+    title.textContent = players>1? `Người ${p+1}` : 'Người chơi';
+    container.appendChild(title);
+
+    const svgWrap = document.createElement('div');
+    svgWrap.className = 'svg-wrap';
+    svgWrap.style.maxWidth = '100%';
+    container.appendChild(svgWrap);
+
+    gridsWrap.appendChild(container);
+
+    // create grid data
+    let spec;
+    const level = levelEl.value;
+    if(level === 'insane'){
+      const n = Math.max(1000, parseInt(insaneNEl.value) || 1000);
+      // choose rows/cols to form near-square
+      const side = Math.ceil(Math.sqrt(n));
+      spec = {rows: side, cols: side, n: n};
+    } else {
+      spec = DEFAULTS[level];
+    }
+
+    state.grids.push({
+      rows: spec.rows,
+      cols: spec.cols,
+      n: spec.n,
+      order: shuffleArray(range(1, spec.n)),
+      svgWrap,
+      foundIndex: 0,
+      startTs: null,
+      elapsed: 0,
+      best: getBestForPlayer(p) // from sessionStorage
+    });
+  }
+  renderAllGrids();
+  updateBestDisplay();
+}
+
+function renderAllGrids(){
+  const cellSize = parseInt(cellSizeEl.value)||60;
+  const cellFont = parseInt(cellFontEl.value)||25;
+  document.documentElement.style.setProperty('--cell-size', cellSize+'px');
+  document.documentElement.style.setProperty('--cell-font', cellFont+'px');
+  const targetFont = parseInt(targetFontEl.value)||65;
+  document.documentElement.style.setProperty('--target-font', targetFont+'px');
+
+  state.grids.forEach((g,p)=>{
+    renderGridSVG(g,p);
+  });
+  // reset displayed target to 1
+  targetNumberEl.textContent = '1';
+}
+
+function renderGridSVG(grid, playerIndex){
+  const w = grid.cols * parseInt(cellSizeEl.value||60);
+  const h = grid.rows * parseInt(cellSizeEl.value||60);
+  const xmlns = "http://www.w3.org/2000/svg";
+  const svgns = document.createElementNS(xmlns,'svg');
+  svgns.setAttribute('width', w);
+  svgns.setAttribute('height', h);
+  svgns.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svgns.style.touchAction = 'manipulation';
+
+  // clear then add
+  grid.svgWrap.innerHTML = '';
+  grid.svgWrap.appendChild(svgns);
+
+  const order = grid.order;
+  // map index -> number label
+  let idx=0;
+  for(let r=0;r<grid.rows;r++){
+    for(let c=0;c<grid.cols;c++){
+      const num = order[idx++];
+      const cellGroup = document.createElementNS(xmlns,'g');
+      const x = c*parseInt(cellSizeEl.value||60);
+      const y = r*parseInt(cellSizeEl.value||60);
+
+      // random bg color (hsl) and ensure contrast with text
+      const hHue = hueRand();
+      const s = rand(50,85);
+      const l = rand(30,60);
+      const bg = `hsl(${hHue} ${s}% ${l}%)`;
+      const fg = contrastColor(hHue,s,l);
+      // rect
+      const rect = document.createElementNS(xmlns,'rect');
+      rect.setAttribute('x', x);
+      rect.setAttribute('y', y);
+      rect.setAttribute('width', parseInt(cellSizeEl.value||60));
+      rect.setAttribute('height', parseInt(cellSizeEl.value||60));
+      rect.setAttribute('rx', Math.max(4, Math.round(parseInt(cellSizeEl.value||60)*0.08)));
+      rect.setAttribute('fill', bg);
+      rect.setAttribute('data-num', num);
+      rect.setAttribute('data-player', playerIndex);
+      rect.style.cursor = 'pointer';
+
+      // text
+      const text = document.createElementNS(xmlns,'text');
+      text.setAttribute('x', x + (parseInt(cellSizeEl.value||60)/2));
+      text.setAttribute('y', y + (parseInt(cellSizeEl.value||60)/2) + (parseInt(cellFontEl.value||25)/3));
+      text.setAttribute('fill', fg);
+      text.setAttribute('font-size', parseInt(cellFontEl.value||25));
+      text.setAttribute('font-family', 'sans-serif');
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('pointer-events', 'none');
+      text.textContent = num;
+
+      cellGroup.appendChild(rect);
+      cellGroup.appendChild(text);
+      svgns.appendChild(cellGroup);
+
+      // click handling
+      rect.addEventListener('click', (e)=>{
+        onCellClick(e.currentTarget, grid, playerIndex);
+      });
+    }
+  }
+}
+
+function onCellClick(rectEl, grid, playerIndex){
+  if(!state.running) return;
+  const clickedNum = Number(rectEl.getAttribute('data-num'));
+  const expected = grid.foundIndex + 1; // numbers are 1..n but order is shuffled
+  // We need to detect the numeric sequence: user must select numbers from 1..n in increasing numeric order.
+  // Since grid.order contains numbers 1..n arranged, foundIndex tracks how many correct picks (by numeric value)
+  if(clickedNum === expected){
+    // mark as found: visually dim and add check
+    rectEl.setAttribute('fill', '#222');
+    rectEl.style.pointerEvents = 'none';
+    // show a tick overlay via small circle or update text color
+    const parent = rectEl.parentNode;
+    const xmlns = "http://www.w3.org/2000/svg";
+    const sz = parseInt(cellSizeEl.value||60);
+    const cx = Number(rectEl.getAttribute('x')) + sz - 12;
+    const cy = Number(rectEl.getAttribute('y')) + 12;
+    const circ = document.createElementNS(xmlns,'circle');
+    circ.setAttribute('cx', cx);
+    circ.setAttribute('cy', cy);
+    circ.setAttribute('r', 10);
+    circ.setAttribute('fill', '#0f0');
+    parent.appendChild(circ);
+    grid.foundIndex++;
+    // If this is the first correct pick, set startTs for that player
+    if(grid.foundIndex === 1){
+      grid.startTs = Date.now();
+    }
+    // If completed:
+    if(grid.foundIndex >= grid.n){
+      // stop timer for that player and record elapsed
+      grid.elapsed = Math.round((Date.now() - grid.startTs)/1000);
+      saveBestForPlayer(playerIndex, grid.elapsed);
+      grid.best = getBestForPlayer(playerIndex);
+      updateBestDisplay();
+      // If multiplayer, still allow others; but announce completion
+      // If solo, stop overall timers
+      if(state.players === 1){
+        stopAllTimers();
+      }
+      alert(`Hoàn thành! Người ${playerIndex+1} thời gian ${formatTimeSec(grid.elapsed)}`);
+    }
+    // After any correct pick, update global target shown for the corresponding player slot if only solo. For multiplayer, show minimal next unpicked across own player.
+    // We display global target = 1 → n for solo; for multiplayer show for player 1 (active) — keep simple: show min next among players
+    updateDisplayedTarget();
+  } else {
+    // incorrect click: small visual feedback
+    rectEl.animate([{transform:'scale(1)'},{transform:'scale(0.95)'},{transform:'scale(1)'}],{duration:160});
+  }
+}
+
+/* utilities */
+function range(a,b){ return Array.from({length:b-a+1},(_,i)=>i+a); }
+function shuffleArray(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+
+/* Timer control */
+function startAll(){
+  if(state.running) return;
+  state.running = true;
+  state.countdownTotal = parseInt(countdownEl.value)||600;
+  state.countdownRemaining = state.countdownTotal;
+  countdownDisplay.textContent = formatTimeSec(state.countdownRemaining);
+  // reset per-grid found/elapsed/start
+  state.grids.forEach(g=>{
+    g.foundIndex = 0;
+    g.startTs = null;
+    g.elapsed = 0;
+    // re-render to restore colors and clicks
+    renderGridSVG(g, state.grids.indexOf(g));
+  });
+  startBtn.disabled = true;
+  // countdown timer
+  state.countdownTimer = setInterval(()=>{
+    state.countdownRemaining--;
+    countdownDisplay.textContent = formatTimeSec(state.countdownRemaining);
+    if(state.countdownRemaining<=0){
+      stopAllTimers();
+      alert('Hết giờ!');
+    }
+  },1000);
+  // elapsed update (show fastest active player's elapsed or overall)
+  state.elapsedTimer = setInterval(()=>{
+    // compute minimal current elapsed among players who started; or 0
+    let minElapsed = Infinity;
+    let anyStarted = false;
+    state.grids.forEach(g=>{
+      if(g.startTs){
+        anyStarted = true;
+        const elapsed = Math.round((Date.now()-g.startTs)/1000);
+        if(elapsed < minElapsed) minElapsed = elapsed;
+      }
+    });
+    elapsedDisplay.textContent = anyStarted? formatTimeSec(minElapsed) : '00:00';
+  },1000);
+}
+
+function stopAllTimers(){
+  state.running = false;
+  startBtn.disabled = false;
+  if(state.countdownTimer){ clearInterval(state.countdownTimer); state.countdownTimer=null; }
+  if(state.elapsedTimer){ clearInterval(state.elapsedTimer); state.elapsedTimer=null; }
+  // update elapsed displays for players not finished
+  state.grids.forEach((g,p)=>{
+    if(g.startTs && g.foundIndex < g.n){
+      g.elapsed = Math.round((Date.now() - g.startTs)/1000);
+      saveBestForPlayer(p, g.elapsed);
+      g.best = getBestForPlayer(p);
+    }
+  });
+  updateBestDisplay();
+}
+
+/* Best time storage (per player slot, per config key) */
+function storageKeyForPlayer(p){
+  // include level & n so best times separate by grid type/size
+  const level = levelEl.value;
+  const n = (level==='insane')? Math.max(1000, parseInt(insaneNEl.value)||1000) : DEFAULTS[level].n;
+  return `gridfinder_best_p${p}_level_${level}_n_${n}`;
+}
+function saveBestForPlayer(p, seconds){
+  const key = storageKeyForPlayer(p);
+  const cur = Number(sessionStorage.getItem(key) || Infinity);
+  if(seconds < cur || !isFinite(cur)){
+    sessionStorage.setItem(key, String(seconds));
+  }
+}
+function getBestForPlayer(p){
+  const key = storageKeyForPlayer(p);
+  const v = sessionStorage.getItem(key);
+  return v ? Number(v) : null;
+}
+function updateBestDisplay(){
+  // if solo, show its best; if multiplayer, show comma-separated per player
+  if(state.players===1){
+    const b = state.grids[0]?.best;
+    bestDisplay.textContent = b? formatTimeSec(b) : '—';
+  } else {
+    const arr = state.grids.map((g,i)=> g.best ? `${g.best?sFormat(g.best):'—'}` : '—');
+    // show as combined minimal
+    const mins = state.grids.map(g=>g.best||Infinity);
+    const m = Math.min(...mins);
+    bestDisplay.textContent = isFinite(m)? formatTimeSec(m) : '—';
+  }
+}
+function sFormat(sec){ return formatTimeSec(sec); }
+
+/* Target display logic */
+function updateDisplayedTarget(){
+  if(state.players===1){
+    const g = state.grids[0];
+    targetNumberEl.textContent = String(g.foundIndex + 1);
+  } else {
+    // show smallest next among players
+    const nexts = state.grids.map(g=> g.foundIndex + 1);
+    const mn = Math.min(...nexts);
+    targetNumberEl.textContent = String(mn);
+  }
+}
+
+/* Event wiring */
+startBtn.addEventListener('click', ()=>{
+  // build grids if needed
+  state.players = Number(multiplayerEl.value) || 1;
+  buildGrids();
+  startAll();
+});
+
+resetBtn.addEventListener('click', ()=>{
+  stopAllTimers();
+  // clear session bests? no — keep session best. Rebuild
+  state.players = Number(multiplayerEl.value) || 1;
+  buildGrids();
+});
+
+/* initialize minimal */
+(function init(){
+  // set initial players
+  state.players = Number(multiplayerEl.value) || 1;
+  buildGrids();
+  countdownDisplay.textContent = formatTimeSec(Number(countdownEl.value)||600);
+  elapsedDisplay.textContent = '00:00';
+  bestDisplay.textContent = '—';
+})();
+
+/* Accessibility / orientation: resize SVG to fit device width if necessary */
+window.addEventListener('resize', ()=>{
+  // ensure grids fit: for small screens, scale SVGs to fit container width
+  state.grids.forEach((g)=>{
+    const wrap = g.svgWrap;
+    if(!wrap) return;
+    const svg = wrap.querySelector('svg');
+    if(!svg) return;
+    const parentWidth = wrap.clientWidth || wrap.parentNode.clientWidth;
+    const naturalW = Number(svg.getAttribute('width'));
+    if(naturalW > parentWidth){
+      svg.style.width = '100%';
+      svg.style.height = 'auto';
+    } else {
+      svg.style.width = naturalW + 'px';
+      svg.style.height = 'auto';
+    }
+  });
+});
+
+/* Ensure mobile tap works smoothly */
+document.addEventListener('touchstart', ()=>{}, {passive:true});
+</script>
+</body>
+</html>
