@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Grid Finder</title>
+<style>
+  :root{
+    --cell-size: 60px;        /* thay đổi kích thước ô ở đây */
+    --cell-font: 25px;        /* font-size số trong ô */
+    --target-font: 65px;      /* font-size số đang tìm */
+    --gap: 6px;
+  }
+  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;}
+  .app{
+    box-sizing:border-box;
+    min-height:100%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:12px;
+    gap:12px;
+  }
+  header{
+    width:100%;
+    max-width:1200px;
+    display:flex;
+    gap:12px;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  select,input[type="number"]{padding:6px;border-radius:6px;border:1px solid #ccc;}
+  button{padding:8px 12px;border-radius:8px;border:none;background:#111;color:#fff;cursor:pointer;}
+  button.secondary{background:#666;}
+  .info{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+  .big-target{
+    font-size:var(--target-font);
+    font-weight:700;
+    min-width:160px;
+    text-align:center;
+    background:linear-gradient(90deg,#111,#333);
+    color:#fff;padding:8px;border-radius:8px;
+  }
+  .timer{font-size:18px;padding:6px 10px;background:#f2f2f2;border-radius:8px;}
+  main{width:100%;max-width:1200px;display:flex;gap:18px;flex-wrap:wrap;justify-content:center;}
+  .player{
+    flex:1 1 320px;
+    min-width:260px;
+    max-width:720px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:10px;
+  }
+  .player .title{font-weight:700;}
+  .grid-wrap{
+    background:#fafafa;border-radius:10px;padding:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);
+    display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;
+  }
+  .grid{
+    display:grid;
+    gap:var(--gap);
+    touch-action:manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .cell{
+    width:var(--cell-size);
+    height:var(--cell-size);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:6px;
+    user-select:none;
+    -webkit-user-select:none;
+    cursor:pointer;
+    font-weight:700;
+    font-size:var(--cell-font);
+    transition:transform .12s ease,opacity .12s ease,filter .12s ease;
+  }
+  .cell.correct{transform:scale(.9);opacity:.5;filter:grayscale(.6);}
+  .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .result{font-size:14px;color:#333}
+  .small{font-size:13px;color:#666}
+  /* responsive: scale grid to fit small screens */
+  @media (max-width:640px){
+    :root{--cell-size:54px;}
+    .big-target{min-width:120px;font-size:56px}
+    :root{--cell-font:22px}
+  }
+  /* full-screen play mode */
+  .fullscreen{
+    position:fixed;inset:0;background:#fff;z-index:9999;padding:18px;overflow:auto;
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header>
+    <div class="controls">
+      <label>
+        Cấp độ:
+        <select id="difficulty">
+          <option value="easy">Dễ 5x5</option>
+          <option value="medium">Trung bình 7x7</option>
+          <option value="hard">Khó 10x10</option>
+        </select>
+      </label>
+      <label>
+        Multiplayer:
+        <select id="multiselect">
+          <option value="1">1 người</option>
+          <option value="2">2 người</option>
+        </select>
+      </label>
+      <label>
+        Thời gian (s):
+        <input id="countdown-input" type="number" min="10" value="600" style="width:90px" />
+      </label>
+      <label>
+        Kích thước ô (px):
+        <input id="cell-size-input" type="number" min="30" value="60" style="width:80px" />
+      </label>
+      <label>
+        Font ô (px):
+        <input id="cell-font-input" type="number" min="10" value="25" style="width:80px" />
+      </label>
+      <button id="startBtn">Bắt đầu</button>
+      <button id="fullscreenBtn" class="secondary">Toàn màn hình</button>
+    </div>
+    <div class="info">
+      <div class="big-target" id="currentTarget">—</div>
+      <div class="timer" id="timer">10:00</div>
+    </div>
+  </header>
+
+  <main id="playersContainer">
+    <!-- player grids appended here -->
+  </main>
+
+  <footer style="width:100%;max-width:1200px;display:flex;justify-content:space-between;align-items:center;">
+    <div class="small">Chọn ô theo thứ tự từ 1 đến số cuối cùng.</div>
+    <div class="small">Best times: <span id="bestTimes">—</span></div>
+  </footer>
+</div>
+
+<script>
+/* Grid Finder - single file
+   - Follow requirements from the user prompt
+   - Uses localStorage for best times per difficulty and player count within the session (persisted)
+*/
+
+const root = document.documentElement;
+const difficultySelect = document.getElementById('difficulty');
+const multiselect = document.getElementById('multiselect');
+const countdownInput = document.getElementById('countdown-input');
+const cellSizeInput = document.getElementById('cell-size-input');
+const cellFontInput = document.getElementById('cell-font-input');
+const startBtn = document.getElementById('startBtn');
+const playersContainer = document.getElementById('playersContainer');
+const currentTargetDisplay = document.getElementById('currentTarget');
+const timerDisplay = document.getElementById('timer');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const bestTimesSpan = document.getElementById('bestTimes');
+
+let gameState = null;
+let countdownInterval = null;
+let sessionBest = {}; // stored in localStorage
+
+// difficulty settings
+const DIFF = {
+  easy: {size:5, max:25},
+  medium: {size:7, max:49},
+  hard: {size:10, max:100}
+};
+
+function loadSessionBest(){
+  try{
+    const raw = localStorage.getItem('gridfinder_best_v1') || '{}';
+    sessionBest = JSON.parse(raw);
+  }catch(e){ sessionBest = {}; }
+}
+function saveSessionBest(){
+  try{ localStorage.setItem('gridfinder_best_v1', JSON.stringify(sessionBest)); }catch(e){}
+}
+loadSessionBest();
+
+function formatTimeSec(s){
+  if (s == null) return '—';
+  const mm = Math.floor(s/60).toString().padStart(2,'0');
+  const ss = (s%60).toString().padStart(2,'0');
+  return `${mm}:${ss}`;
+}
+
+function pickDistinctColor(forNumberColor){
+  // hsl random but ensure contrast with number color
+  const h = Math.floor(Math.random()*360);
+  const s = 60 + Math.floor(Math.random()*20);
+  const l = 45 + Math.floor(Math.random()*20);
+  const bg = `hsl(${h} ${s}% ${l}%)`;
+  // ensure not equal to forNumberColor (we control number color as either black/white)
+  return bg;
+}
+
+function idealTextColorForBg(hsl){
+  // simple luminance estimate by parsing HSL and deciding black/white
+  // fallback: return '#000' or '#fff'
+  // We'll choose black for light backgrounds and white for dark.
+  // convert from "hsl(h s% l%)"
+  const m = /hsl\((\d+)\s+(\d+)%\s+(\d+)%\)/.exec(hsl);
+  if(!m) return '#000';
+  const l = Number(m[3]);
+  return l > 55 ? '#000' : '#fff';
+}
+
+function shuffleArray(a){
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+
+function createGridData(size, maxNum){
+  // generate numbers 1..maxNum, pick size*size unique numbers (no duplicates)
+  const count = size*size;
+  // ensure we have enough numbers
+  const available = Array.from({length:maxNum},(_,i)=>i+1);
+  shuffleArray(available);
+  const chosen = available.slice(0,count);
+  // shuffle for placing in grid
+  shuffleArray(chosen);
+  return chosen;
+}
+
+function renderPlayers(numPlayers, difficulty, cellSize, cellFont, countdown){
+  playersContainer.innerHTML = '';
+  gameState = {
+    players: [],
+    difficulty,
+    startTime: null,
+    remaining: countdown,
+    running: false,
+    totalToFind: DIFF[difficulty].size * DIFF[difficulty].size
+  };
+  for(let p=0;p<numPlayers;p++){
+    const wrap = document.createElement('div');
+    wrap.className='player';
+    wrap.innerHTML = `
+      <div class="title">Người chơi ${p+1}</div>
+      <div class="grid-wrap">
+        <div class="status">
+          <div class="result">Tìm: <span class="foundCount">0</span>/<span class="totalCount"></span></div>
+          <div class="result">Thời gian: <span class="timeTaken">--:--</span></div>
+        </div>
+        <div class="grid" aria-label="grid-player-${p}"></div>
+      </div>
+    `;
+    playersContainer.appendChild(wrap);
+
+    const gridEl = wrap.querySelector('.grid');
+    const totalCount = wrap.querySelector('.totalCount');
+    totalCount.textContent = DIFF[difficulty].size * DIFF[difficulty].size;
+
+    // set grid template
+    gridEl.style.gridTemplateColumns = `repeat(${DIFF[difficulty].size}, ${cellSize}px)`;
+    gridEl.style.gridTemplateRows = `repeat(${DIFF[difficulty].size}, ${cellSize}px)`;
+
+    // generate numbers
+    const nums = createGridData(DIFF[difficulty].size, DIFF[difficulty].max);
+    // create cells
+    nums.forEach(num => {
+      const c = document.createElement('div');
+      c.className='cell';
+      c.dataset.num = num;
+      c.textContent = num;
+      // random bg but ensure number color contrasts and is not same as bg
+      const bg = pickDistinctColor();
+      c.style.background = bg;
+      const textColor = idealTextColorForBg(bg);
+      c.style.color = textColor;
+      gridEl.appendChild(c);
+    });
+
+    gameState.players.push({
+      id: p,
+      el: wrap,
+      gridEl,
+      numbers: nums.slice(),
+      found: 0,
+      nextToFind: 1,
+      finishedAt: null
+    });
+
+    // attach click/tap handler
+    gridEl.addEventListener('click', (ev)=>{
+      const cell = ev.target.closest('.cell');
+      if(!cell) return;
+      const playerIndex = p;
+      handleCellClick(playerIndex, cell);
+    });
+  }
+
+  // update sizes globally
+  root.style.setProperty('--cell-size', cellSize + 'px');
+  root.style.setProperty('--cell-font', cellFont + 'px');
+
+  // reset displays
+  updateCurrentTarget();
+  updateBestTimesDisplay();
+}
+
+function handleCellClick(playerIndex, cell){
+  if(!gameState.running) return;
+  const player = gameState.players[playerIndex];
+  const num = Number(cell.dataset.num);
+  if(player.finishedAt) return; // already finished
+  if(num === player.nextToFind){
+    // correct
+    cell.classList.add('correct');
+    player.found++;
+    player.nextToFind++;
+    player.el.querySelector('.foundCount').textContent = player.found;
+    // if this player is the one currently selected for showing "current target", 
+    // we update the big target to show their required next number. For multiplayer we show for player 1 by default,
+    // but here we show the minimum nextToFind across all players to be decisive: pick smallest nextToFind pending.
+    updateCurrentTarget();
+    // check finish
+    if(player.found === player.numbers.length){
+      player.finishedAt = Math.floor((Date.now() - gameState.startTime)/1000);
+      player.el.querySelector('.timeTaken').textContent = formatTimeSec(player.finishedAt);
+      // update best time
+      const key = `${gameState.difficulty}_p${gameState.players.length}`;
+      const prev = sessionBest[key];
+      if(!prev || player.finishedAt < prev) {
+        sessionBest[key] = player.finishedAt;
+        saveSessionBest();
+      }
+      updateBestTimesDisplay();
+      // If all players finished, stop game
+      const allFinished = gameState.players.every(pl=>pl.finishedAt);
+      if(allFinished) stopGame();
+    }
+  } else {
+    // wrong tap: small animation
+    cell.animate([{transform:'scale(1)'},{transform:'scale(0.95)'},{transform:'scale(1)'}],{duration:180});
+  }
+}
+
+function updateCurrentTarget(){
+  // choose display: if single player show that player's nextToFind; if multiplayer show min nextToFind among players with label
+  if(!gameState) return;
+  const players = gameState.players;
+  if(players.length === 1){
+    const n = players[0].nextToFind;
+    currentTargetDisplay.textContent = n <= players[0].numbers.length ? n : 'Hoàn thành';
+  } else {
+    // show "P1: x | P2: y" condensed; but requirement asked display "một số đang tìm" large — choose to show next number of player1 and also per-player small
+    currentTargetDisplay.textContent = `P1:${players[0].nextToFind <= players[0].numbers.length ? players[0].nextToFind : '✓'}  P2:${players[1].nextToFind <= players[1].numbers.length ? players[1].nextToFind : '✓'}`;
+  }
+}
+
+function updateTimerDisplay(){
+  timerDisplay.textContent = formatTimeSec(gameState.remaining);
+}
+
+function startGame(){
+  const difficulty = difficultySelect.value;
+  const playersCount = Number(multiselect.value);
+  const countdown = Math.max(1, Number(countdownInput.value) || 600);
+  const cellSize = Math.max(30, Number(cellSizeInput.value) || 60);
+  const cellFont = Math.max(10, Number(cellFontInput.value) || 25);
+
+  renderPlayers(playersCount, difficulty, cellSize, cellFont, countdown);
+
+  // start timer
+  if(countdownInterval) clearInterval(countdownInterval);
+  gameState.startTime = Date.now();
+  gameState.remaining = countdown;
+  gameState.running = true;
+  updateTimerDisplay();
+
+  countdownInterval = setInterval(()=>{
+    if(!gameState) return;
+    gameState.remaining--;
+    updateTimerDisplay();
+    if(gameState.remaining <= 0){
+      // time up
+      clearInterval(countdownInterval);
+      gameState.running = false;
+      // mark unfinished players
+      gameState.players.forEach(pl=>{
+        if(!pl.finishedAt){
+          pl.el.querySelector('.timeTaken').textContent = 'Time Up';
+        }
+      });
+      currentTargetDisplay.textContent = 'Hết giờ';
+    }
+  },1000);
+
+  // show initial target
+  updateCurrentTarget();
+}
+
+function stopGame(){
+  if(countdownInterval) clearInterval(countdownInterval);
+  gameState.running = false;
+  // compute remaining for players not finished as null
+  updateTimerDisplay();
+  currentTargetDisplay.textContent = 'Kết thúc';
+}
+
+function updateBestTimesDisplay(){
+  const key = `${gameState ? gameState.difficulty : difficultySelect.value}_p${multiselect.value}`;
+  const best = sessionBest[key];
+  bestTimesSpan.textContent = best ? formatTimeSec(best) : '—';
+}
+
+// fullscreen toggle (simple applying class)
+let isFullscreenMode = false;
+fullscreenBtn.addEventListener('click', ()=>{
+  isFullscreenMode = !isFullscreenMode;
+  if(isFullscreenMode){
+    document.body.classList.add('fullscreen');
+    // create overlay
+    const overlay = document.createElement('div');
+    overlay.id='fsOverlay';
+    overlay.className='fullscreen';
+    overlay.appendChild(document.getElementById('app'));
+    document.documentElement.appendChild(overlay);
+    fullscreenBtn.textContent = 'Thoát toàn màn hình';
+  } else {
+    const overlay = document.getElementById('fsOverlay');
+    if(overlay){
+      // move app back to body
+      document.body.appendChild(document.getElementById('app'));
+      overlay.remove();
+    }
+    document.body.classList.remove('fullscreen');
+    fullscreenBtn.textContent = 'Toàn màn hình';
+  }
+});
+
+// start button
+startBtn.addEventListener('click', ()=>{
+  startGame();
+});
+
+// live adjust cell size and font
+cellSizeInput.addEventListener('change', ()=> {
+  const val = Math.max(30, Number(cellSizeInput.value)||60);
+  root.style.setProperty('--cell-size', val+'px');
+});
+cellFontInput.addEventListener('change', ()=> {
+  const val = Math.max(10, Number(cellFontInput.value)||25);
+  root.style.setProperty('--cell-font', val+'px');
+});
+
+// update best times initial
+updateBestTimesDisplay();
+
+// Accessibility tip: allow number keys 1..9 to click corresponding cells for player1 when single player
+document.addEventListener('keydown', (e)=>{
+  if(!gameState || !gameState.running) return;
+  if(e.key >= '1' && e.key <= '9'){
+    // find cell with number equal to pressed key for player 0
+    const val = Number(e.key);
+    const pl = gameState.players[0];
+    if(!pl) return;
+    const cell = Array.from(pl.gridEl.querySelectorAll('.cell')).find(c => Number(c.dataset.num)===val);
+    if(cell) handleCellClick(0, cell);
+  }
+});
+
+// initial render
+renderPlayers(1, 'easy', 60, 25, 600);
+updateBestTimesDisplay();
+
+</script>
+</body>
+</html>
