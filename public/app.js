@@ -392,12 +392,13 @@ socket.on('left_room', () => {
   socket.emit('get_lobby');
 });
 
+
 socket.on('room_state', (state) => {
   const oldCurrent = roomState?.players.find(p => p.id === myId)?.current;
   renderRoom(state);
   const newCurrent = state.players.find(p => p.id === myId)?.current;
   
-   // If current increased (player found correct number), start 10s delay for THIS number
+  // If current increased (player found correct number), start 10s delay for THIS number
   if (newCurrent > oldCurrent && oldCurrent != null) {
     clearTimeout(targetDelay);
     targetDelay = true; // During 10s delay for this number
