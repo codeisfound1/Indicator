@@ -1,17 +1,18 @@
 {
-  "name": "number-hunt-game",
+  "name": "numgrid-multiplayer",
   "version": "1.0.0",
-  "description": "Multiplayer number sequence game with real-time sync",
+  "description": "Multiplayer Number Grid Finding Game",
   "main": "server.js",
-  "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "nodemon server.js"
   },
-  "keywords": ["game", "multiplayer", "realtime"],
-  "license": "ISC",
   "dependencies": {
     "express": "^4.18.2",
-    "socket.io": "^4.6.1"
+    "socket.io": "^4.7.2",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
   }
 }
