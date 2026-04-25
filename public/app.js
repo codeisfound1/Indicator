@@ -76,7 +76,7 @@ function computeCellSize(gridSize, containerWidth) {
 }
 
 // Build/rebuild the SVG grid for a player panel
-function buildGrid(panel, playerData, isMe) {
+function buildGrid(panel, playerData, isMe, showHint) {
   const { grid, gridSize, current, completed } = playerData;
   const wrapEl = panel.querySelector('.grid-wrapper');
   if (!wrapEl) return;
@@ -114,6 +114,7 @@ function buildGrid(panel, playerData, isMe) {
     const isNext = num === current;
     // Only show hint after 10s delay
     const showHintForThis = showHint && isNext;
+
     const g = document.createElementNS(ns, 'g');
 
     // Cell rect
@@ -124,12 +125,7 @@ function buildGrid(panel, playerData, isMe) {
     rect.setAttribute('height', cellSize);
     rect.setAttribute('rx', Math.max(3, cellSize * 0.12));
     rect.setAttribute('fill', done ? '#1c2538' : colors[idx]);
-    //rect.setAttribute('stroke', isNext ? '#fff' : 'rgba(0,0,0,.25)');
-    //rect.setAttribute('stroke-width', isNext ? '2.5' : '1');
-    //if (isNext && isMe && !completed) {
-    //  rect.style.filter = 'drop-shadow(0 0 6px rgba(255,255,255,.7))';
-    //}
-   rect.setAttribute('stroke', showHintForThis ? '#fff' : 'rgba(0,0,0,.25)');
+    rect.setAttribute('stroke', showHintForThis ? '#fff' : 'rgba(0,0,0,.25)');
     rect.setAttribute('stroke-width', showHintForThis ? '2.5' : '1');
     if (showHintForThis && isMe && !completed) {
       rect.style.filter = 'drop-shadow(0 0 6px rgba(255,255,255,.7))';
@@ -209,14 +205,7 @@ function renderRoom(state) {
   // Find my player data for target display
   const me = state.players.find(p => p.id === myId);
   if (me) {
-    if (me.completed) {
-      $('target-display').textContent = '✓';
-    } else if (targetDelay) {
-      // During 10s delay, show "?"
-      $('target-display').textContent = '?';
-    } else {
-      $('target-display').textContent = me.current;
-    }
+    $('target-display').textContent = me.completed ? '✓' : me.current;
   }
 
   // Build/update player panels
@@ -241,7 +230,9 @@ function renderRoom(state) {
     }
 
     updatePlayerPanel(panel, p, isMe, state.hostId);
-    buildGrid(panel, p, isMe);
+    // Only show hint after 10s delay, and only for own grid
+    const showHint = isMe && targetDelay === false; // false = after 10s completed
+    buildGrid(panel, p, isMe, showHint);
   });
 }
 
@@ -409,10 +400,10 @@ socket.on('room_state', (state) => {
   // If current increased (player found correct number), start 10s delay
   if (newCurrent > oldCurrent && oldCurrent != null) {
     clearTimeout(targetDelay);
-    targetDelay = true;
+    targetDelay = true; // During delay
     setTimeout(() => {
-      targetDelay = null;
-      // Re-render to show the next number
+      targetDelay = false; // After 10s, show hint
+      // Re-render to show the hint highlight
       if (roomState) renderRoom(roomState);
     }, 10000);
   }
