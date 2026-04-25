@@ -8,7 +8,11 @@
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
-  "keywords": ["game", "multiplayer", "realtime"],
+  "keywords": [
+    "game",
+    "multiplayer",
+    "realtime"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
