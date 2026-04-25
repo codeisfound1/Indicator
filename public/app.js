@@ -1,5 +1,18 @@
 const socket = io();
  
+socket.on('connect', () => {
+  console.log('✅ Connected to server:', socket.id);
+});
+ 
+socket.on('connect_error', (error) => {
+  console.error('❌ Connection error:', error);
+  alert('Connection error. Please refresh the page.');
+});
+ 
+socket.on('disconnect', () => {
+  console.log('⚠️ Disconnected from server');
+});
+ 
 // Game State
 const gameState = {
   screen: 'lobby',
@@ -141,19 +154,27 @@ function sendGameChatMessage() {
  
 // ==================== SOCKET.IO EVENTS ====================
 socket.on('roomCreated', (data) => {
-  gameState.roomId = data.roomId;
-  gameState.playerName = data.playerName;
-  console.log('Room created:', data.roomId);
-  switchScreen('room');
-  updateRoomDisplay();
+  try {
+    gameState.roomId = data.roomId;
+    gameState.playerName = data.playerName;
+    console.log('Room created:', data.roomId);
+    switchScreen('room');
+    updateRoomDisplay();
+  } catch (err) {
+    console.error('roomCreated error:', err);
+  }
 });
  
 socket.on('roomJoined', (data) => {
-  gameState.roomId = data.roomId;
-  gameState.playerName = data.playerName;
-  console.log('Joined room:', data.roomId);
-  switchScreen('room');
-  updateRoomDisplay();
+  try {
+    gameState.roomId = data.roomId;
+    gameState.playerName = data.playerName;
+    console.log('Joined room:', data.roomId);
+    switchScreen('room');
+    updateRoomDisplay();
+  } catch (err) {
+    console.error('roomJoined error:', err);
+  }
 });
  
 socket.on('roomUpdated', (data) => {
