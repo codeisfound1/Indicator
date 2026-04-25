@@ -400,14 +400,13 @@ socket.on('room_state', (state) => {
   
   // If current increased (player found correct number), start 10s delay for THIS number
   if (newCurrent > oldCurrent && oldCurrent != null) {
-    clearTimeout(targetDelay);
-    targetDelay = true; // During 10s delay for this number
-    setTimeout(() => {
-      targetDelay = false; // After 10s, show hint for this number
-      // Re-render to show the hint highlight
-      if (roomState) renderRoom(roomState);
-    }, 10000);
-  }
+  clearTimeout(targetDelay);
+  targetDelay = true;  // ← Bắt đầu delay
+  setTimeout(() => {
+    targetDelay = false;  // ← Sau 10s, set = false để show hint
+    if (roomState) renderRoom(roomState);
+  }, 10000);
+}
 });
 
 socket.on('countdown', updateCountdown);
