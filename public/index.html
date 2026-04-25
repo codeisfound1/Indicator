@@ -8,63 +8,60 @@
 </head>
 <body>
   <div id="app">
-    <header id="header">
+    <header id="topbar">
+      <h1>Grid Finder</h1>
       <div id="lobby-controls">
         <button id="btn-new-room">Create Room</button>
-        <select id="select-level">
-          <option value="easy">Easy (5x5)</option>
-          <option value="medium">Medium (7x7)</option>
-          <option value="hard">Hard (10x10)</option>
-          <option value="extreme">Custom (n≥10)</option>
+        <select id="level-select">
+          <option value="easy">Easy 5x5</option>
+          <option value="medium">Medium 7x7</option>
+          <option value="hard">Hard 10x10</option>
+          <option value="custom">Custom</option>
         </select>
-        <input id="input-n" type="number" placeholder="n (for custom)" min="10" style="width:80px;" />
-        <button id="btn-refresh-rooms">Refresh</button>
-      </div>
-      <div id="room-info">
-        <div id="room-name"></div>
-        <div id="timer">--:--</div>
-        <div id="target-number">#</div>
+        <input id="custom-n" type="number" min="10" max="30" value="10" style="width:70px; display:none" />
       </div>
     </header>
 
     <main id="main">
-      <aside id="left-panel">
-        <div id="lobby">
-          <h3>Lobby</h3>
-          <ul id="rooms-list"></ul>
-        </div>
-        <div id="players-box">
-          <h4>Players</h4>
-          <ul id="players-list"></ul>
-          <div id="host-controls">
-            <button id="btn-start" disabled>Start</button>
-            <label><input id="chk-ready" type="checkbox" /> Ready</label>
-          </div>
-        </div>
-      </aside>
-
-      <section id="grid-panel">
-        <!-- grids will be injected here -->
+      <section id="lobby">
+        <h2>Lobby</h2>
+        <div id="rooms"></div>
       </section>
 
-      <aside id="right-panel">
-        <div id="chat-box">
-          <h4>Chat</h4>
-          <div id="chat-messages"></div>
-          <form id="chat-form">
-            <input id="chat-input" autocomplete="off" placeholder="Type message" />
-            <button>Send</button>
-          </form>
+      <section id="room-panel" class="hidden">
+        <div id="room-header">
+          <div id="room-info"></div>
+          <div id="room-actions">
+            <button id="btn-start" class="hidden">Start Game</button>
+            <button id="btn-leave">Leave</button>
+          </div>
         </div>
 
-        <div id="settings">
-          <h4>Settings</h4>
-          <label>Cell size: <input id="setting-cellSize" type="number" value="60" /></label>
-          <label>Cell font: <input id="setting-fontCell" type="number" value="25" /></label>
-          <label>Target font: <input id="setting-fontTarget" type="number" value="65" /></label>
-          <label>Countdown (s): <input id="setting-countdown" type="number" value="600" /></label>
+        <div id="room-body">
+          <aside id="sidebar">
+            <div id="players-list"></div>
+            <div id="chat">
+              <div id="chat-messages"></div>
+              <form id="chat-form">
+                <input id="chat-input" autocomplete="off" placeholder="Message..." />
+                <button type="submit">Send</button>
+              </form>
+            </div>
+            <div id="settings">
+              <label><input type="checkbox" id="high-contrast" /> High Contrast</label>
+            </div>
+          </aside>
+
+          <section id="game-area">
+            <div id="hud">
+              <div id="target-number">1</div>
+              <div id="timer">10:00</div>
+              <div id="best-times"></div>
+            </div>
+            <div id="grids-container"></div>
+          </section>
         </div>
-      </aside>
+      </section>
     </main>
   </div>
 
