@@ -1,69 +1,71 @@
 <!doctype html>
 <html>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Grid Finder</title>
-<link rel="stylesheet" href="/style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Grid Finder</title>
+  <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-<div id="app">
-  <div id="lobby" class="panel">
-    <h1>Grid Finder</h1>
-    <div class="row">
-      <label>Username <input id="username" placeholder="Auto"></label>
-      <label>Level
-        <select id="level">
-          <option value="easy">Dễ (5x5)</option>
-          <option value="medium">Trung bình (7x7)</option>
-          <option value="hard">Khó (10x10)</option>
-          <option value="insane">Siêu khó (NxN)</option>
+  <div id="app">
+    <header id="topbar">
+      <h1>Grid Finder</h1>
+      <div id="lobby-controls">
+        <button id="btn-new-room">Create Room</button>
+        <select id="level-select">
+          <option value="easy">Easy 5x5</option>
+          <option value="medium">Medium 7x7</option>
+          <option value="hard">Hard 10x10</option>
+          <option value="custom">Custom</option>
         </select>
-      </label>
-      <label id="insaneN" style="display:none">N <input id="insaneNInput" type="number" min="10" value="12"></label>
-    </div>
-    <div class="row">
-      <button id="create">Tạo phòng</button>
-      <input id="joinRoomInput" placeholder="Mã phòng">
-      <button id="join">Tham gia</button>
-    </div>
-    <div id="roomsInfo"></div>
+        <input id="custom-n" type="number" min="10" max="30" value="10" style="width:70px; display:none" />
+      </div>
+    </header>
+
+    <main id="main">
+      <section id="lobby">
+        <h2>Lobby</h2>
+        <div id="rooms"></div>
+      </section>
+
+      <section id="room-panel" class="hidden">
+        <div id="room-header">
+          <div id="room-info"></div>
+          <div id="room-actions">
+            <button id="btn-start" class="hidden">Start Game</button>
+            <button id="btn-leave">Leave</button>
+          </div>
+        </div>
+
+        <div id="room-body">
+          <aside id="sidebar">
+            <div id="players-list"></div>
+            <div id="chat">
+              <div id="chat-messages"></div>
+              <form id="chat-form">
+                <input id="chat-input" autocomplete="off" placeholder="Message..." />
+                <button type="submit">Send</button>
+              </form>
+            </div>
+            <div id="settings">
+              <label><input type="checkbox" id="high-contrast" /> High Contrast</label>
+            </div>
+          </aside>
+
+          <section id="game-area">
+            <div id="hud">
+              <div id="target-number">1</div>
+              <div id="timer">10:00</div>
+              <div id="best-times"></div>
+            </div>
+            <div id="grids-container"></div>
+          </section>
+        </div>
+      </section>
+    </main>
   </div>
 
-  <div id="room" class="panel" style="display:none">
-    <div class="roomHeader">
-      <div>
-        <div>Phòng: <span id="roomIdDisplay"></span></div>
-        <div>Level: <select id="roomLevel"></select></div>
-      </div>
-      <div>
-        <button id="startGame">Bắt đầu</button>
-        <button id="leaveRoom">Rời</button>
-      </div>
-    </div>
-
-    <div class="mainPlay">
-      <div class="leftcol">
-        <div id="playerGrids" class="gridsContainer"></div>
-      </div>
-      <div class="rightcol">
-        <div class="status">
-          <div>Searching: <div id="targetNumber" class="targetNum"></div></div>
-          <div>Time left: <div id="countdown">600</div></div>
-          <div>Elapsed: <div id="elapsed">0</div></div>
-          <div>Best (session): <div id="bestSession">—</div></div>
-        </div>
-        <div class="chat">
-          <div id="chatLog"></div>
-          <input id="chatInput" placeholder="Chat...">
-          <button id="sendChat">Gửi</button>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script src="/socket.io/socket.io.js"></script>
-<script src="/app.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>
