@@ -1,332 +1,375 @@
-// Client-side app
 const socket = io();
-
-// UI refs
-const roomsList = document.getElementById('roomsList');
-const createRoomBtn = document.getElementById('createRoomBtn');
-const createLevel = document.getElementById('createLevel');
-const customN = document.getElementById('customN');
-const playerNameInput = document.getElementById('playerName');
-
-const lobbySection = document.getElementById('lobby');
-const roomSection = document.getElementById('room');
-const roomTitle = document.getElementById('roomTitle');
-const leaveBtn = document.getElementById('leaveBtn');
-const startBtn = document.getElementById('startBtn');
-const playersList = document.getElementById('playersList');
-const chatBox = document.getElementById('chatBox');
-const chatInput = document.getElementById('chatInput');
-const roomLevelSelect = document.getElementById('roomLevelSelect');
-
-const gridContainer = document.getElementById('gridContainer');
-const targetDisplay = document.getElementById('targetDisplay');
-const timeLeft = document.getElementById('timeLeft');
-const bestTime = document.getElementById('bestTime');
-const cellSizeControl = document.getElementById('cellSize');
-const fontSizeControl = document.getElementById('fontSize');
-const statusLine = document.getElementById('statusLine');
-const finishTimes = document.getElementById('finishTimes');
-
-let currentRoom = null;
-let playerSocketId = null;
-let gameState = null;
-let countdownInterval = null;
-let gameStartAt = null;
-let gameEndAt = null;
-let expectedSequence = 1;
-let gridConfig = null; // {n, numbers, cellSize, font}
-let playerBestTimes = {};
-
-// helper
-function fmtTime(sec){
-  if (sec == null) return '--:--';
-  const m = Math.floor(sec/60).toString().padStart(2,'0');
-  const s = Math.floor(sec%60).toString().padStart(2,'0');
-  return `${m}:${s}`;
-}
-
-// lobby handling
-socket.on('lobbyRooms', (rooms) => {
-  roomsList.innerHTML = '';
-  rooms.forEach(r => {
-    const div = document.createElement('div');
-    div.className = 'room';
-    div.innerHTML = `<div><strong>${r.name}</strong><div>${r.count} players · ${r.level}</div></div>`;
-    const btn = document.createElement('button');
-    btn.textContent = 'Join';
-    btn.onclick = () => socket.emit('joinRoom', {roomId: r.id});
-    div.appendChild(btn);
-    roomsList.appendChild(div);
+ 
+// Game State
+const gameState = {
+  screen: 'lobby',
+  roomId: null,
+  playerId: null,
+  playerName: null,
+  currentNumber: 1,
+  selectedLevel: 'easy',
+  selectedGridSize: 5,
+  currentGrid: [],
+  currentColors: [],
+  gameStartTime: null,
+  timerInterval: null,
+  roomPlayers: new Map(),
+  otherPlayersGrids: new Map()
+};
+ 
+// DOM Elements
+const screens = {
+  lobby: document.getElementById('lobbyScreen'),
+  room: document.getElementById('roomScreen'),
+  game: document.getElementById('gameScreen'),
+  completion: document.getElementById('completionScreen')
+};
+ 
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+  setupLobbyListeners();
+  setupRoomListeners();
+  setupGameListeners();
+});
+ 
+// ==================== LOBBY ====================
+function setupLobbyListeners() {
+  // Level selection
+  document.querySelectorAll('.level-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.level-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      gameState.selectedLevel = btn.dataset.level;
+      
+      if (btn.dataset.level === 'custom') {
+        document.getElementById('customSizeGroup').classList.remove('hidden');
+      } else {
+        document.getElementById('customSizeGroup').classList.add('hidden');
+        const sizeMap = { easy: 5, medium: 7, hard: 10 };
+        gameState.selectedGridSize = sizeMap[btn.dataset.level];
+      }
+    });
   });
-});
-
-createRoomBtn.onclick = () => {
-  const level = createLevel.value === 'custom' ? 'custom' : createLevel.value;
-  const roomName = null;
-  let countdown = 600;
-  socket.emit('createRoom', {roomName, level, countdown});
-};
-
-playerNameInput.onchange = () => {
-  const name = playerNameInput.value.trim();
-  if (name) socket.emit('setName', {name});
-};
-
-leaveBtn.onclick = () => {
-  if (!currentRoom) return;
-  socket.emit('leaveRoom', {roomId: currentRoom.id});
-  showLobby();
-};
-
-chatInput.onkeydown = (e) => {
-  if (e.key === 'Enter'){
-    const txt = chatInput.value.trim();
-    if (!txt || !currentRoom) return;
-    socket.emit('sendChat', {roomId: currentRoom.id, text: txt});
-    chatInput.value = '';
+ 
+  // Create Room
+  document.getElementById('createRoomBtn').addEventListener('click', () => {
+    const playerName = document.getElementById('createPlayerName').value.trim();
+    const roomName = document.getElementById('createRoomName').value.trim();
+    const customSize = parseInt(document.getElementById('customGridSize').value);
+ 
+    if (!playerName) {
+      alert('Please enter your name');
+      return;
+    }
+ 
+    const size = gameState.selectedLevel === 'custom' ? customSize : gameState.selectedGridSize;
+ 
+    socket.emit('createRoom', {
+      playerName,
+      roomName,
+      level: gameState.selectedLevel,
+      gridSize: size
+    });
+  });
+ 
+  // Join Room
+  document.getElementById('joinRoomBtn').addEventListener('click', () => {
+    const playerName = document.getElementById('joinPlayerName').value.trim();
+    const roomId = document.getElementById('roomCode').value.trim().toUpperCase();
+ 
+    if (!playerName || !roomId) {
+      alert('Please enter your name and room code');
+      return;
+    }
+ 
+    socket.emit('joinRoom', {
+      roomId,
+      playerName
+    });
+  });
+}
+ 
+function setupRoomListeners() {
+  document.getElementById('startGameBtn').addEventListener('click', () => {
+    socket.emit('startGame');
+  });
+ 
+  document.getElementById('leaveRoomBtn').addEventListener('click', () => {
+    socket.emit('leaveRoom');
+    switchScreen('lobby');
+  });
+ 
+  document.getElementById('sendMessageBtn').addEventListener('click', sendChatMessage);
+  document.getElementById('chatInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+  });
+}
+ 
+function sendChatMessage() {
+  const input = document.getElementById('chatInput');
+  const message = input.value.trim();
+  if (message) {
+    socket.emit('sendMessage', { message });
+    input.value = '';
   }
-};
-
-roomLevelSelect.onchange = () => {
-  if (!currentRoom) return;
-  socket.emit('setLevel', {roomId: currentRoom.id, level: roomLevelSelect.value});
-};
-
-startBtn.onclick = () => {
-  if (!currentRoom) return;
-  socket.emit('startGame', {roomId: currentRoom.id});
-};
-
-// room updates
-socket.on('roomUpdate', (room) => {
-  currentRoom = room;
-  showRoom();
-  renderPlayers(room.players, room.bestTimes);
+}
+ 
+function setupGameListeners() {
+  document.getElementById('exitGameBtn').addEventListener('click', () => {
+    socket.emit('exitGame');
+    switchScreen('room');
+  });
+ 
+  document.getElementById('continueBtn').addEventListener('click', () => {
+    switchScreen('room');
+  });
+ 
+  document.getElementById('gameSendMessageBtn').addEventListener('click', sendGameChatMessage);
+  document.getElementById('gameChatInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendGameChatMessage();
+  });
+}
+ 
+function sendGameChatMessage() {
+  const input = document.getElementById('gameChatInput');
+  const message = input.value.trim();
+  if (message) {
+    socket.emit('sendMessage', { message });
+    input.value = '';
+  }
+}
+ 
+// ==================== SOCKET.IO EVENTS ====================
+socket.on('roomCreated', (data) => {
+  gameState.roomId = data.roomId;
+  gameState.playerName = data.playerName;
+  console.log('Room created:', data.roomId);
+  switchScreen('room');
+  updateRoomDisplay();
 });
-
-socket.on('chatMessage', (m) => {
+ 
+socket.on('roomJoined', (data) => {
+  gameState.roomId = data.roomId;
+  gameState.playerName = data.playerName;
+  console.log('Joined room:', data.roomId);
+  switchScreen('room');
+  updateRoomDisplay();
+});
+ 
+socket.on('roomUpdated', (data) => {
+  gameState.roomPlayers.clear();
+  data.players.forEach(p => gameState.roomPlayers.set(p.id, p));
+  updatePlayersList();
+  
+  // Show start button only for room owner
+  const isOwner = data.players[0]?.id === socket.id; // Owner is first player
+  document.getElementById('startGameBtn').classList.toggle('hidden', !isOwner);
+});
+ 
+socket.on('gameStarted', (data) => {
+  gameState.gameStartTime = data.startTime;
+  switchScreen('game');
+  generateAndRenderGrid();
+  startTimer(data.timeLimit);
+});
+ 
+socket.on('playerProgress', (data) => {
+  if (data.playerId === socket.id) {
+    gameState.currentNumber = data.currentNumber;
+    document.getElementById('currentNumber').textContent = data.currentNumber;
+  }
+ 
+  // Update player in leaderboard
+  if (gameState.roomPlayers.has(data.playerId)) {
+    const player = gameState.roomPlayers.get(data.playerId);
+    player.currentNumber = data.currentNumber;
+    player.bestTime = data.bestTime;
+    player.completedAt = data.completedAt;
+  }
+ 
+  updateLeaderboard();
+ 
+  if (data.completedAt && data.playerId === socket.id) {
+    endGame(data.bestTime);
+  }
+});
+ 
+socket.on('gridUpdated', (data) => {
+  gameState.currentGrid = data.grid;
+  gameState.currentColors = data.colors;
+  generateAndRenderGrid();
+});
+ 
+socket.on('newMessage', (data) => {
+  addChatMessage(data.playerName, data.message);
+});
+ 
+socket.on('error', (data) => {
+  alert('Error: ' + data.message);
+});
+ 
+// ==================== GAME MECHANICS ====================
+function generateAndRenderGrid() {
+  const size = Math.sqrt(gameState.currentGrid.length);
+  const svg = document.getElementById('mainGrid');
+  svg.innerHTML = '';
+ 
+  // Calculate responsive grid size
+  const containerWidth = svg.parentElement.offsetWidth;
+  const containerHeight = svg.parentElement.offsetHeight;
+  const cellSize = Math.min(containerWidth / size - 4, containerHeight / size - 4);
+  const gridSize = cellSize * size + (size - 1) * 4;
+ 
+  svg.setAttribute('viewBox', `0 0 ${gridSize} ${gridSize}`);
+  svg.setAttribute('width', containerWidth);
+  svg.setAttribute('height', containerHeight);
+ 
+  gameState.currentGrid.forEach((number, index) => {
+    const row = Math.floor(index / size);
+    const col = index % size;
+    const x = col * (cellSize + 4);
+    const y = row * (cellSize + 4);
+ 
+    // Cell rectangle
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', x);
+    rect.setAttribute('y', y);
+    rect.setAttribute('width', cellSize);
+    rect.setAttribute('height', cellSize);
+    rect.setAttribute('fill', gameState.currentColors[index]);
+    rect.setAttribute('stroke', '#333');
+    rect.setAttribute('stroke-width', '2');
+    rect.setAttribute('rx', '8');
+    rect.setAttribute('class', 'grid-cell');
+    rect.setAttribute('data-index', index);
+    rect.setAttribute('data-number', number);
+ 
+    if (number < gameState.currentNumber) {
+      rect.setAttribute('opacity', '0.3');
+    }
+ 
+    rect.addEventListener('click', () => {
+      if (number === gameState.currentNumber) {
+        socket.emit('selectNumber', { number });
+      }
+    });
+ 
+    // Number text
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', x + cellSize / 2);
+    text.setAttribute('y', y + cellSize / 2);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('dominant-baseline', 'middle');
+    text.setAttribute('font-size', Math.max(20, cellSize * 0.4));
+    text.setAttribute('font-weight', 'bold');
+    text.setAttribute('fill', 'white');
+    text.setAttribute('pointer-events', 'none');
+    text.textContent = number;
+ 
+    svg.appendChild(rect);
+    svg.appendChild(text);
+  });
+}
+ 
+function updateLeaderboard() {
+  const leaderboard = document.getElementById('leaderboard');
+  const players = Array.from(gameState.roomPlayers.values())
+    .sort((a, b) => (b.bestTime || Infinity) - (a.bestTime || Infinity));
+ 
+  leaderboard.innerHTML = players.map((p, idx) => `
+    <div class="leaderboard-entry">
+      <span class="rank">#${idx + 1}</span>
+      <span class="name">${p.name}</span>
+      <span class="progress">${p.currentNumber} / ${gameState.currentGrid.length}</span>
+      <span class="time">${p.bestTime ? formatTime(p.bestTime) : '--:--'}</span>
+    </div>
+  `).join('');
+}
+ 
+function updatePlayersList() {
+  const list = document.getElementById('playersList');
+  const count = gameState.roomPlayers.size;
+  document.getElementById('playerCount').textContent = count;
+ 
+  list.innerHTML = Array.from(gameState.roomPlayers.values()).map(p => `
+    <div class="player-item">
+      <span class="player-name">${p.name}</span>
+      <span class="player-status">${p.bestTime ? `Completed: ${formatTime(p.bestTime)}` : 'Waiting...'}</span>
+    </div>
+  `).join('');
+}
+ 
+function updateRoomDisplay() {
+  document.getElementById('roomName').textContent = 'Room ' + gameState.roomId;
+  document.getElementById('roomCode').textContent = gameState.roomId;
+}
+ 
+function startTimer(duration) {
+  let remaining = duration;
+  updateTimerDisplay(remaining);
+ 
+  gameState.timerInterval = setInterval(() => {
+    remaining--;
+    updateTimerDisplay(remaining);
+ 
+    if (remaining <= 0) {
+      clearInterval(gameState.timerInterval);
+      endGame(duration);
+    }
+  }, 1000);
+}
+ 
+function updateTimerDisplay(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  document.getElementById('timer').textContent = 
+    `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+ 
+function formatTime(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+ 
+function endGame(bestTime) {
+  clearInterval(gameState.timerInterval);
+  
+  document.getElementById('completionTitle').textContent = 
+    gameState.currentNumber > gameState.currentGrid.length ? 'Congratulations! 🎉' : 'Time\'s Up! ⏰';
+  
+  document.getElementById('yourTime').textContent = formatTime(bestTime);
+  document.getElementById('bestTime').textContent = formatTime(bestTime);
+ 
+  // Show final leaderboard
+  const leaderboard = Array.from(gameState.roomPlayers.values())
+    .sort((a, b) => (a.bestTime || Infinity) - (b.bestTime || Infinity))
+    .map((p, idx) => `
+      <div class="leaderboard-entry">
+        <span class="rank">#${idx + 1}</span>
+        <span class="name">${p.name}</span>
+        <span class="time">${p.bestTime ? formatTime(p.bestTime) : '--:--'}</span>
+      </div>
+    `).join('');
+ 
+  document.getElementById('finalLeaderboard').innerHTML = leaderboard;
+  switchScreen('completion');
+}
+ 
+function addChatMessage(playerName, message) {
+  const container = gameState.screen === 'game' 
+    ? document.getElementById('gameChatMessages')
+    : document.getElementById('chatMessages');
+ 
   const div = document.createElement('div');
-  const t = new Date(m.ts);
-  div.innerHTML = `<strong>${escapeHtml(m.from)}</strong>: ${escapeHtml(m.text)} <span class="muted" style="font-size:11px;color:#666;margin-left:6px">${t.toLocaleTimeString()}</span>`;
-  chatBox.appendChild(div);
-  chatBox.scrollTop = chatBox.scrollHeight;
-});
-
-socket.on('errorMessage', (msg) => {
-  alert(msg);
-});
-
-// game start
-socket.on('gameStart', ({startAt, countdown, playersInfo}) => {
-  // build per-player grids and start countdown
-  // playersInfo: socketId -> {name, level}
-  // if this client has an entry, use its level
-  const myId = socket.id;
-  const myInfo = playersInfo[myId] || Object.values(playersInfo)[0];
-  const level = myInfo.level || (currentRoom ? currentRoom.level : 'easy');
-  startLocalGame(startAt, countdown, level);
-});
-
-function startLocalGame(startAt, countdown, level){
-  clearGameState();
-  statusLine.textContent = 'Game starting...';
-  expectedSequence = 1;
-  const now = Date.now();
-  const waitMs = Math.max(0, startAt - now);
-  setTimeout(() => {
-    setupGridForLevel(level);
-    gameStartAt = startAt;
-    gameEndAt = startAt + countdown*1000;
-    startCountdownTimer();
-    statusLine.textContent = 'Go!';
-  }, waitMs);
+  div.className = 'chat-message';
+  div.innerHTML = `<strong>${playerName}:</strong> ${message}`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
 }
-
-// grid generator
-function setupGridForLevel(level){
-  let n;
-  if (level === 'easy') n = 5;
-  else if (level === 'medium') n = 7;
-  else if (level === 'hard') n = 10;
-  else {
-    // custom read from input
-    const v = parseInt(document.getElementById('customN').value,10);
-    n = isNaN(v) || v < 10 ? 10 : v;
-  }
-  const cellSize = parseInt(cellSizeControl.value,10) || 60;
-  const font = parseInt(fontSizeControl.value,10) || 25;
-  gridConfig = {n, cellSize, font};
-  const total = n*n;
-  const nums = [];
-  for (let i=1;i<=total;i++) nums.push(i);
-  // shuffle
-  for (let i = nums.length -1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [nums[i], nums[j]] = [nums[j], nums[i]];
-  }
-  renderSVGGrid(n, nums, cellSize, font);
-  targetDisplay.textContent = '1';
-  targetDisplay.style.fontSize = Math.max(32, Math.min(110, cellSize*1.5)) + 'px';
-  expectedSequence = 1;
+ 
+function switchScreen(screenName) {
+  Object.values(screens).forEach(s => s.classList.remove('active'));
+  screens[screenName].classList.add('active');
+  gameState.screen = screenName;
 }
-
-function renderSVGGrid(n, nums, cellSize, fontSize){
-  gridContainer.innerHTML = '';
-  const totalW = n * cellSize;
-  const svgNS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('width', totalW);
-  svg.setAttribute('height', n*cellSize);
-  svg.classList.add('grid-svg');
-  svg.style.touchAction = 'manipulation';
-  // generate a random color for numbers set? requirement: each cell color different but not same as fixed text color
-  const colors = [];
-  for (let i=0;i<n*n;i++){
-    colors.push(randomPastel());
-  }
-  for (let r=0;r<n;r++){
-    for (let c=0;c<n;c++){
-      const idx = r*n + c;
-      const x = c*cellSize;
-      const y = r*cellSize;
-      const rect = document.createElementNS(svgNS, 'rect');
-      rect.setAttribute('x', x);
-      rect.setAttribute('y', y);
-      rect.setAttribute('width', cellSize);
-      rect.setAttribute('height', cellSize);
-      rect.setAttribute('fill', colors[idx]);
-      rect.setAttribute('data-num', nums[idx]);
-      rect.setAttribute('rx', Math.max(4, cellSize*0.06));
-      rect.style.stroke = '#e6e9ec';
-      rect.style.strokeWidth = 1;
-      rect.style.cursor = 'pointer';
-      svg.appendChild(rect);
-
-      const txt = document.createElementNS(svgNS, 'text');
-      txt.setAttribute('x', x + cellSize/2);
-      txt.setAttribute('y', y + cellSize/2 + fontSize*0.3);
-      txt.setAttribute('text-anchor', 'middle');
-      txt.setAttribute('font-size', fontSize);
-      txt.setAttribute('fill', '#111'); // text color fixed, ensure not identical to bg by using darker color
-      txt.setAttribute('data-num', nums[idx]);
-      txt.style.pointerEvents = 'none';
-      txt.textContent = nums[idx];
-      svg.appendChild(txt);
-
-      // rect click handler
-      rect.addEventListener('click', onCellClick);
-    }
-  }
-  const wrap = document.createElement('div');
-  wrap.className = 'grid-wrap';
-  wrap.style.width = Math.min(window.innerWidth - 340, totalW) + 'px';
-  wrap.appendChild(svg);
-  gridContainer.appendChild(wrap);
-}
-
-function onCellClick(e){
-  const num = parseInt(e.currentTarget.getAttribute('data-num'),10);
-  if (num !== expectedSequence) {
-    // optional feedback
-    e.currentTarget.style.filter = 'brightness(0.9)';
-    setTimeout(()=> e.currentTarget.style.filter = '',200);
-    return;
-  }
-  // mark chosen
-  markCellSelected(e.currentTarget);
-  expectedSequence++;
-  targetDisplay.textContent = expectedSequence <= gridConfig.n*gridConfig.n ? expectedSequence : 'Done';
-  if (expectedSequence > gridConfig.n*gridConfig.n) {
-    // finished
-    const finishedAt = Date.now();
-    const timeTaken = Math.round((finishedAt - gameStartAt)/1000);
-    socket.emit('playerFinished', {roomId: currentRoom.id, timeTaken});
-    stopCountdownTimer();
-    statusLine.textContent = `Finished in ${fmtTime(timeTaken)} (reported)`;
-  }
-}
-
-function markCellSelected(rect){
-  rect.style.opacity = 0.5;
-  rect.style.pointerEvents = 'none';
-}
-
-function startCountdownTimer(){
-  clearInterval(countdownInterval);
-  countdownInterval = setInterval(() => {
-    const now = Date.now();
-    const secLeft = Math.max(0, Math.ceil((gameEndAt - now)/1000));
-    timeLeft.textContent = fmtTime(secLeft);
-    if (secLeft <= 0) {
-      clearInterval(countdownInterval);
-      statusLine.textContent = 'Time up!';
-    }
-  }, 300);
-}
-
-function stopCountdownTimer(){
-  clearInterval(countdownInterval);
-}
-
-function clearGameState(){
-  stopCountdownTimer();
-  gameStartAt = null;
-  gameEndAt = null;
-  expectedSequence = 1;
-  gridContainer.innerHTML = '';
-  finishTimes.innerHTML = '';
-  statusLine.textContent = '';
-}
-
-// render players list & best times
-function renderPlayers(players, bestTimesObj){
-  playersList.innerHTML = '';
-  Object.values(players).forEach(p => {
-    const li = document.createElement('li');
-    li.textContent = p.name + (p.currentTime ? ` — ${fmtTime(p.currentTime)}` : '');
-    playersList.appendChild(li);
-  });
-  // show best times
-  bestTime.textContent = '--:--';
-  if (bestTimesObj) {
-    const entries = Object.entries(bestTimesObj);
-    if (entries.length>0){
-      const best = entries.reduce((a,b)=> a[1]<b[1]?a:b);
-      bestTime.textContent = fmtTime(best[1]);
-    }
-  }
-}
-
-// utility
-function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function randomPastel(){
-  const h = Math.floor(Math.random()*360);
-  const s = 60 + Math.floor(Math.random()*20);
-  const l = 75 + Math.floor(Math.random()*10);
-  return `hsl(${h} ${s}% ${l}%)`;
-}
-
-function showRoom(){
-  lobbySection.classList.add('hidden');
-  roomSection.classList.remove('hidden');
-  roomTitle.textContent = currentRoom.name + ` (${currentRoom.id})`;
-  // host control
-  if (socket.id === currentRoom.hostId) startBtn.style.display = 'inline-block';
-  else startBtn.style.display = 'none';
-  roomLevelSelect.value = currentRoom.level || 'easy';
-}
-
-function showLobby(){
-  lobbySection.classList.remove('hidden');
-  roomSection.classList.add('hidden');
-  currentRoom = null;
-}
-
-// apply cell/font size controls live
-cellSizeControl.oninput = fontSizeControl.oninput = () => {
-  if (!gridConfig) return;
-  setupGridForLevel(currentRoom ? (currentRoom.level) : 'easy');
-};
-
-// initial UI
-showLobby();
