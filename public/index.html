@@ -3,166 +3,156 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Number Hunt - Multiplayer Game</title>
+  <title>🎯 Number Hunt - Multiplayer Game</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Lobby Screen -->
+  <!-- LOBBY SCREEN -->
   <div id="lobbyScreen" class="screen active">
     <div class="lobby-container">
       <div class="lobby-header">
         <h1 class="logo">🎯 NUMBER HUNT</h1>
-        <p class="tagline">Find numbers. Beat the clock. Compete with friends.</p>
+        <p class="tagline">Find numbers in sequence. Beat the clock. Challenge friends.</p>
       </div>
- 
+
       <div class="lobby-content">
-        <div class="lobby-panel create-room-panel">
+        <div class="panel create-panel">
           <h2>Create Room</h2>
+          
           <div class="form-group">
             <label>Your Name</label>
-            <input type="text" id="createPlayerName" placeholder="Enter your name" maxlength="20">
+            <input type="text" id="createName" placeholder="Enter your name" maxlength="20">
           </div>
+
           <div class="form-group">
             <label>Room Name</label>
-            <input type="text" id="createRoomName" placeholder="Room name (auto-generated if empty)" maxlength="20">
+            <input type="text" id="createRoomName" placeholder="Auto-generated if empty" maxlength="20">
           </div>
+
           <div class="form-group">
             <label>Difficulty Level</label>
             <div class="level-buttons">
               <button class="level-btn active" data-level="easy">Easy<br><small>5×5</small></button>
               <button class="level-btn" data-level="medium">Medium<br><small>7×7</small></button>
               <button class="level-btn" data-level="hard">Hard<br><small>10×10</small></button>
-              <button class="level-btn" data-level="custom">Custom<br><small>nxn</small></button>
+              <button class="level-btn" data-level="custom">Custom<br><small>n×n</small></button>
             </div>
           </div>
+
           <div id="customSizeGroup" class="form-group hidden">
             <label>Grid Size (n)</label>
-            <input type="number" id="customGridSize" min="5" max="20" value="10">
+            <input type="number" id="customSize" min="5" max="20" value="10">
           </div>
-          <button id="createRoomBtn" class="btn btn-primary">Create Room</button>
+
+          <button id="createBtn" class="btn btn-primary full-width">Create Room</button>
         </div>
- 
-        <div class="lobby-panel join-room-panel">
+
+        <div class="panel join-panel">
           <h2>Join Room</h2>
+          
           <div class="form-group">
             <label>Your Name</label>
-            <input type="text" id="joinPlayerName" placeholder="Enter your name" maxlength="20">
+            <input type="text" id="joinName" placeholder="Enter your name" maxlength="20">
           </div>
+
           <div class="form-group">
             <label>Room Code</label>
-            <input type="text" id="roomCode" placeholder="e.g. ABC123" maxlength="6">
+            <input type="text" id="roomCode" placeholder="e.g. ABC123" maxlength="10" style="text-transform: uppercase;">
           </div>
-          <button id="joinRoomBtn" class="btn btn-secondary">Join Room</button>
-        </div>
-      </div>
- 
-      <div class="available-rooms">
-        <h3>Available Rooms</h3>
-        <div id="roomsList" class="rooms-list">
-          <p class="empty-state">No rooms available. Create one to get started!</p>
+
+          <button id="joinBtn" class="btn btn-secondary full-width">Join Room</button>
         </div>
       </div>
     </div>
   </div>
- 
-  <!-- Game Room Screen -->
+
+  <!-- ROOM SCREEN -->
   <div id="roomScreen" class="screen">
     <div class="room-container">
       <div class="room-header">
         <div class="room-info">
-          <h2 id="roomName"></h2>
-          <span id="roomCode" class="room-code"></span>
+          <h2 id="roomTitle">Room</h2>
+          <span class="room-code" id="roomCodeDisplay"></span>
         </div>
-        <button id="leaveRoomBtn" class="btn btn-outline">Leave</button>
+        <button id="leaveBtn" class="btn btn-outline">Leave</button>
       </div>
- 
+
       <div class="room-content">
-        <div class="players-panel">
+        <div class="panel players-panel">
           <h3>Players (<span id="playerCount">0</span>/4)</h3>
           <div id="playersList" class="players-list"></div>
-          <button id="startGameBtn" class="btn btn-primary full-width hidden">Start Game</button>
+          <button id="startBtn" class="btn btn-success full-width hidden">Start Game</button>
         </div>
- 
-        <div class="chat-panel">
+
+        <div class="panel chat-panel">
           <h3>Chat</h3>
           <div id="chatMessages" class="chat-messages"></div>
-          <div class="chat-input-group">
-            <input type="text" id="chatInput" placeholder="Type a message..." maxlength="100">
-            <button id="sendMessageBtn" class="btn btn-icon">Send</button>
+          <div class="chat-input">
+            <input type="text" id="chatInput" placeholder="Type message..." maxlength="100">
+            <button id="sendBtn" class="btn btn-icon">Send</button>
           </div>
         </div>
       </div>
     </div>
   </div>
- 
-  <!-- Game Play Screen -->
+
+  <!-- GAME SCREEN -->
   <div id="gameScreen" class="screen">
     <div class="game-container">
       <div class="game-header">
         <div class="timer" id="timer">10:00</div>
         <div class="current-number" id="currentNumber">1</div>
-        <button id="exitGameBtn" class="btn btn-outline">Exit Game</button>
+        <button id="exitGameBtn" class="btn btn-outline">Exit</button>
       </div>
- 
+
       <div class="game-content">
-        <!-- Main Grid -->
         <div class="grid-section">
           <h3>Your Grid</h3>
           <div class="grid-wrapper">
-            <svg id="mainGrid" class="game-grid"></svg>
+            <svg id="gameGrid" class="game-grid"></svg>
           </div>
         </div>
- 
-        <!-- Other Players Grids -->
+
         <div class="leaderboard-section">
-          <h3>Players Progress</h3>
-          <div id="leaderboard" class="leaderboard">
-            <!-- Dynamically populated -->
+          <h3>Players</h3>
+          <div id="leaderboard" class="leaderboard"></div>
+
+          <h3 style="margin-top: 20px;">Chat</h3>
+          <div id="gameChatMessages" class="chat-messages"></div>
+          <div class="chat-input">
+            <input type="text" id="gameChatInput" placeholder="Type message..." maxlength="100">
+            <button id="gameSendBtn" class="btn btn-icon">Send</button>
           </div>
- 
-          <div class="other-grids" id="otherGrids">
-            <!-- Other players' grids dynamically added -->
-          </div>
-        </div>
-      </div>
- 
-      <!-- Chat -->
-      <div class="game-chat">
-        <h3>Chat</h3>
-        <div id="gameChatMessages" class="chat-messages"></div>
-        <div class="chat-input-group">
-          <input type="text" id="gameChatInput" placeholder="Type a message...">
-          <button id="gameSendMessageBtn" class="btn btn-icon">Send</button>
         </div>
       </div>
     </div>
   </div>
- 
-  <!-- Completion Screen -->
+
+  <!-- COMPLETION SCREEN -->
   <div id="completionScreen" class="screen">
     <div class="completion-container">
-      <div class="completion-content">
+      <div class="completion-box">
         <h1 id="completionTitle">Game Complete!</h1>
+        
         <div class="completion-stats">
-          <div class="stat">
-            <span class="label">Your Time:</span>
-            <span id="yourTime" class="value">0:00</span>
+          <div class="stat-box">
+            <span class="stat-label">Your Time</span>
+            <span class="stat-value" id="yourTime">0:00</span>
           </div>
-          <div class="stat">
-            <span class="label">Best Time:</span>
-            <span id="bestTime" class="value">0:00</span>
+          <div class="stat-box">
+            <span class="stat-label">Best Time</span>
+            <span class="stat-value" id="bestTime">0:00</span>
           </div>
         </div>
- 
-        <div id="finalLeaderboard" class="final-leaderboard">
-          <!-- Final rankings -->
-        </div>
- 
-        <button id="continueBtn" class="btn btn-primary">Back to Room</button>
+
+        <h3>Final Rankings</h3>
+        <div id="finalLeaderboard" class="leaderboard"></div>
+
+        <button id="continueBtn" class="btn btn-primary full-width">Back to Room</button>
       </div>
     </div>
   </div>
- 
+
   <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
   <script src="app.js"></script>
 </body>
