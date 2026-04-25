@@ -144,46 +144,56 @@ io.on('connection', (socket) => {
   });
  
   socket.on('selectNumber', (data) => {
-    const player = players.get(socket.id);
-    if (!player) return;
+    try {
+      const player = players.get(socket.id);
+      if (!player) return;
  
-    const room = rooms.get(player.roomId);
-    if (!room || room.status !== 'playing') return;
+      const room = rooms.get(player.roomId);
+      if (!room || room.status !== 'playing') return;
  
-    const roomPlayer = room.players.get(socket.id);
-    if (!roomPlayer) return;
+      const roomPlayer = room.players.get(socket.id);
+      if (!roomPlayer) return;
  
-    if (data.number === roomPlayer.currentNumber) {
-      roomPlayer.currentNumber++;
+      if (data && data.number === roomPlayer.currentNumber) {
+        roomPlayer.currentNumber++;
  
-      const totalNumbers = room.gridSize * room.gridSize;
-      if (roomPlayer.currentNumber > totalNumbers) {
-        roomPlayer.completedAt = Date.now();
-        roomPlayer.bestTime = (roomPlayer.completedAt - room.startTime) / 1000;
+        const totalNumbers = room.gridSize * room.gridSize;
+        if (roomPlayer.currentNumber > totalNumbers) {
+          roomPlayer.completedAt = Date.now();
+          roomPlayer.bestTime = (roomPlayer.completedAt - room.startTime) / 1000;
+        }
+ 
+        io.to(room.id).emit('playerProgress', {
+          playerId: socket.id,
+          currentNumber: roomPlayer.currentNumber,
+          completedAt: roomPlayer.completedAt,
+          bestTime: roomPlayer.bestTime
+        });
       }
- 
-      io.to(room.id).emit('playerProgress', {
-        playerId: socket.id,
-        currentNumber: roomPlayer.currentNumber,
-        completedAt: roomPlayer.completedAt,
-        bestTime: roomPlayer.bestTime
-      });
+    } catch (err) {
+      console.error('selectNumber error:', err);
     }
   });
  
   socket.on('sendMessage', (data) => {
-    const player = players.get(socket.id);
-    if (!player) return;
+    try {
+      const player = players.get(socket.id);
+      if (!player) return;
  
-    const room = rooms.get(player.roomId);
-    if (!room) return;
+      const room = rooms.get(player.roomId);
+      if (!room) return;
  
-    io.to(room.id).emit('newMessage', {
-      playerId: socket.id,
-      playerName: player.name,
-      message: data.message,
-      timestamp: Date.now()
-    });
+      if (data && data.message) {
+        io.to(room.id).emit('newMessage', {
+          playerId: socket.id,
+          playerName: player.name,
+          message: data.message,
+          timestamp: Date.now()
+        });
+      }
+    } catch (err) {
+      console.error('sendMessage error:', err);
+    }
   });
  
   socket.on('changeLevel', (data) => {
@@ -208,20 +218,25 @@ io.on('connection', (socket) => {
   });
  
   socket.on('disconnect', () => {
-    const player = players.get(socket.id);
-    if (player) {
-      const room = rooms.get(player.roomId);
-      if (room) {
-        room.players.delete(socket.id);
-        if (room.players.size === 0) {
-          rooms.delete(player.roomId);
-        } else {
-          io.to(player.roomId).emit('roomUpdated', getRoomState(room));
+    try {
+      const player = players.get(socket.id);
+      if (player) {
+        const room = rooms.get(player.roomId);
+        if (room) {
+          room.players.delete(socket.id);
+          if (room.players.size === 0) {
+            rooms.delete(player.roomId);
+            console.log('Room deleted:', player.roomId);
+          } else {
+            io.to(player.roomId).emit('roomUpdated', getRoomState(room));
+          }
         }
+        players.delete(socket.id);
       }
-      players.delete(socket.id);
+      console.log('Player disconnected:', socket.id);
+    } catch (err) {
+      console.error('disconnect error:', err);
     }
-    console.log('Player disconnected:', socket.id);
   });
 });
  
@@ -242,6 +257,19 @@ function getRoomState(room) {
   };
 }
  
-httpServer.listen(3000, () => {
-  console.log('Game server running on http://localhost:3000');
+httpServer.listen(3000, '0.0.0.0', () => {
+  console.log('✅ Game server running on http://localhost:3000');
+});
+ 
+// Error handling
+httpServer.on('error', (err) => {
+  console.error('❌ Server error:', err);
+});
+ 
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+ 
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
 });
