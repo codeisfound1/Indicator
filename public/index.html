@@ -1,113 +1,93 @@
-<!DOCTYPE html>
-<html lang="vi">
+<!doctype html>
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Number Grid Game</title>
-  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grid Sequence Game</title>
+  <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <!-- Lobby Screen -->
-  <div id="lobby-screen" class="screen active">
-    <div class="lobby-container">
-      <h1>🔢 Number Grid Game</h1>
-      
-      <div class="lobby-content">
-        <div class="lobby-section">
-          <h2>Create Room</h2>
-          <div class="form-group">
-            <label>Your Name</label>
-            <input type="text" id="create-player-name" placeholder="Auto-generated if empty">
-          </div>
-          <div class="form-group">
-            <label>Game Level</label>
-            <select id="create-level">
-              <option value="easy">Easy (5x5, 1-25)</option>
-              <option value="medium">Medium (7x7, 1-49)</option>
-              <option value="hard">Hard (10x10, 1-100)</option>
-              <option value="extreme">Extreme (12x12, 1-144)</option>
-            </select>
-          </div>
-          <button id="create-room-btn" class="btn btn-primary">Create Room</button>
-        </div>
-
-        <div class="lobby-divider">OR</div>
-
-        <div class="lobby-section">
-          <h2>Join Room</h2>
-          <div class="form-group">
-            <label>Your Name</label>
-            <input type="text" id="join-player-name" placeholder="Auto-generated if empty">
-          </div>
-          <button id="refresh-lobby-btn" class="btn btn-secondary">Refresh Rooms</button>
-          <div id="rooms-list" class="rooms-list"></div>
-        </div>
+  <div id="app">
+    <header>
+      <h1>Grid Sequence Game</h1>
+      <div class="top-controls">
+        <input id="playerName" placeholder="Your name" />
+        <button id="createRoomBtn">Create Room</button>
+        <select id="createLevel">
+          <option value="easy">Easy 5x5</option>
+          <option value="medium">Medium 7x7</option>
+          <option value="hard">Hard 10x10</option>
+          <option value="custom">Custom n x n</option>
+        </select>
+        <input id="customN" type="number" min="10" placeholder="n (>=10)" style="width:90px;" />
       </div>
-    </div>
+    </header>
+
+    <main>
+      <section id="lobby">
+        <h2>Lobby</h2>
+        <div id="roomsList"></div>
+      </section>
+
+      <section id="room" class="hidden">
+        <div class="room-header">
+          <h2 id="roomTitle"></h2>
+          <div>
+            <button id="leaveBtn">Leave Room</button>
+            <button id="startBtn">Start Game (Host)</button>
+          </div>
+        </div>
+
+        <div class="room-body">
+          <aside class="sidebar">
+            <div>
+              <strong>Players</strong>
+              <ul id="playersList"></ul>
+            </div>
+            <div>
+              <strong>Chat</strong>
+              <div id="chatBox" class="chatbox"></div>
+              <input id="chatInput" placeholder="Type message..." />
+            </div>
+            <div>
+              <strong>Room Level</strong>
+              <select id="roomLevelSelect">
+                <option value="easy">Easy 5x5</option>
+                <option value="medium">Medium 7x7</option>
+                <option value="hard">Hard 10x10</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+          </aside>
+
+          <section class="game-area">
+            <div class="game-top">
+              <div class="target-and-timer">
+                <div id="targetDisplay" class="target">--</div>
+                <div class="timer">
+                  <div>Time: <span id="timeLeft">00:00</span></div>
+                  <div>Best: <span id="bestTime">--:--</span></div>
+                </div>
+              </div>
+              <div class="grid-controls">
+                <label>Cell size: <input id="cellSize" type="range" min="30" max="120" value="60"></label>
+                <label>Font size: <input id="fontSize" type="range" min="12" max="80" value="25"></label>
+              </div>
+            </div>
+
+            <div id="gridContainer" class="grid-container"></div>
+
+            <div class="game-footer">
+              <div id="statusLine">Waiting to start...</div>
+              <div id="finishTimes"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
   </div>
 
-  <!-- Game Room Screen -->
-  <div id="game-screen" class="screen">
-    <div class="game-container">
-      <!-- Header -->
-      <header class="game-header">
-        <div class="header-left">
-          <h2 id="room-name"></h2>
-          <span id="room-id" class="room-id"></span>
-        </div>
-        <div class="header-center">
-          <div class="current-number-display">
-            <span id="current-number">1</span>
-          </div>
-        </div>
-        <div class="header-right">
-          <div class="timer-container">
-            <span id="timer" class="timer">10:00</span>
-          </div>
-          <button id="leave-room-btn" class="btn btn-small">Leave</button>
-        </div>
-      </header>
-
-      <!-- Main Content -->
-      <div class="game-content">
-        <!-- Players Grids -->
-        <div id="players-grids-container" class="players-grids-container"></div>
-      </div>
-
-      <!-- Footer with Chat -->
-      <div class="game-footer">
-        <div class="chat-container">
-          <div id="chat-messages" class="chat-messages"></div>
-          <div class="chat-input-group">
-            <input 
-              type="text" 
-              id="chat-input" 
-              placeholder="Nhập tin nhắn..."
-              maxlength="100"
-            >
-            <button id="send-chat-btn" class="btn btn-small">Send</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal cho custom size -->
-  <div id="custom-size-modal" class="modal">
-    <div class="modal-content">
-      <h3>Custom Game Size</h3>
-      <div class="form-group">
-        <label>Grid Size (n x n, n >= 10)</label>
-        <input type="number" id="custom-size-input" min="10" value="10">
-      </div>
-      <div class="modal-buttons">
-        <button id="custom-size-confirm" class="btn btn-primary">Confirm</button>
-        <button id="custom-size-cancel" class="btn btn-secondary">Cancel</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="app.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>
