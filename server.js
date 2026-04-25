@@ -1,421 +1,430 @@
 // server.js
-// Express + Socket.IO server implementing lobby, rooms, realtime sync, server-authoritative timer.
-// Simple in-memory store with optional JSON persistence for best times.
-
+// Express + Socket.IO server for Grid Finder
+// Run: node server.js
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const ShortUniqueId = require('short-unique-id');
 const fs = require('fs');
 const path = require('path');
+const shortid = require('shortid');
+
+const PORT = process.env.PORT || 3000;
+const PERSIST_FILE = path.join(__dirname, 'best_times.json');
+const DISCONNECT_GRACE_MS = 30 * 1000; // 30s
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-//const uid = new ShortUniqueId({ length: 4 });
-const id = makeId(4);
+// Serve /public as static
+app.use(express.static(path.join(__dirname, 'public')));
 
-// safe UID generator compatible với nhiều phiên bản
-function makeId(len = 4) {
-  try {
-    const s = new ShortUniqueId({ length: len });
-    // some versions expose .uuid() or .randomUUID() or are callable; prefer .randomUUID() if exists
-    if (typeof s.randomUUID === 'function') return s.randomUUID();
-    if (typeof s.uuid === 'function') return s.uuid();
-    if (typeof s.generate === 'function') return s.generate();
-    // fallback: use instance as function if supported
-    if (typeof s === 'function') return s();
-    // final fallback: use crypto
-    const bytes = require('crypto').randomBytes(Math.ceil(len/2)).toString('hex').slice(0,len);
-    return bytes;
-  } catch (e) {
-    // fallback to crypto only
-    const bytes = require('crypto').randomBytes(Math.ceil(len/2)).toString('hex').slice(0,len);
-    return bytes;
-  }
-}
+// In-memory store
+const rooms = {}; // roomId -> room object
+const players = {}; // socketId -> player meta
+let bestTimes = {}; // key = roomLevelKey -> { playerId: bestMs, ... }
 
-// Configurable defaults
-const DEFAULTS = {
-  cellSize: 60,
-  fontCell: 25,
-  fontTarget: 65,
-  countdown: 600 // seconds
-};
-
-// Persistence file for best times (optional)
-const BEST_TIMES_FILE = path.join(__dirname, 'best_times.json');
-let bestTimes = {}; // {roomLevelKey: { playerName: bestSeconds, ... }, ...}
+// Load persisted best times if exists
 try {
-  if (fs.existsSync(BEST_TIMES_FILE)) {
-    bestTimes = JSON.parse(fs.readFileSync(BEST_TIMES_FILE, 'utf8'));
+  if (fs.existsSync(PERSIST_FILE)) {
+    bestTimes = JSON.parse(fs.readFileSync(PERSIST_FILE, 'utf8')) || {};
   }
 } catch (e) {
-  console.warn('Could not read best times file', e);
+  console.error('Failed to load best times:', e);
 }
 
-// In-memory rooms store
-// rooms: { roomId: { id, name, hostId, settings, players: { socketId: playerObj }, state: { running, startTime, endTime, countdownLeft }, gridsSeeds, timers } }
-const rooms = {};
-const socketsToRooms = {}; // socketId -> roomId
-
-// Utility: random short room/player names (2-3 syllables like "lumo", "bexa")
-const syllables = ['la','mi','so','ra','be','tu','xi','na','zo','ke','pa','ri','vo','da','te'];
-function genName(tokens = 2) {
-  let s = [];
-  for (let i = 0; i < tokens; i++) s.push(syllables[Math.floor(Math.random()*syllables.length)]);
-  return s.join('');
-}
-
-// Utility: save bestTimes file
+// Utility: save bestTimes optionally
 function persistBestTimes() {
   try {
-    fs.writeFileSync(BEST_TIMES_FILE, JSON.stringify(bestTimes, null, 2), 'utf8');
+    fs.writeFileSync(PERSIST_FILE, JSON.stringify(bestTimes, null, 2), 'utf8');
   } catch (e) {
-    console.warn('Failed to persist best times', e);
+    console.error('Failed to persist best times:', e);
   }
 }
 
-// Create grid seed (deterministic seed string)
-function genGridSeed() {
-  return makeId(4);
+// Simple random short name generator using two-token approach
+const TOKENS = [
+  "bop","ziv","mek","lun","tor","sai","ka","ri","mo","fen","sam","tuk","vel","jun","pib","noz","gim","rax","koi","yul",
+  "az","be","ci","do","ek","fi","go","hu","il","jo","ku","li","mo","ni","op","pi","qu","ru","si","ta","ul","vo","wi","xo","ye","zu",
+  // (add up to 200 tokens as needed)
+];
+function randomName() {
+  const a = TOKENS[Math.floor(Math.random() * TOKENS.length)];
+  const b = TOKENS[Math.floor(Math.random() * TOKENS.length)];
+  return (a + '-' + b).slice(0, 18);
 }
 
-// When server authoritative timer runs, use setInterval per room
-function startRoomCountdown(room) {
-  if (room.state.timer) clearInterval(room.state.timer);
-  room.state.timeLeft = room.settings.countdown || DEFAULTS.countdown;
-  room.state.startTime = Date.now();
-  room.state.running = true;
-
-  room.state.timer = setInterval(() => {
-    room.state.timeLeft -= 1;
-    // Broadcast game_state timeLeft for all players (server authoritative)
-    io.to(room.id).emit('game_state', {
-      timeLeft: room.state.timeLeft,
-      players: Object.values(room.players).map(p => ({
-        id: p.id,
-        name: p.name,
-        selected: p.selectedNumbers || []
-      }))
-    });
-
-    if (room.state.timeLeft <= 0) {
-      // time up: mark unfinished players as finished with null or large value
-      clearInterval(room.state.timer);
-      room.state.running = false;
-      room.state.timer = null;
-      room.state.endTime = Date.now();
-
-      for (const pid in room.players) {
-        const p = room.players[pid];
-        if (!p.finished) {
-          p.finished = true;
-          p.finishTime = null;
-          io.to(room.id).emit('player_finished', { playerId: p.id, finishTime: null });
-        }
-      }
-      // broadcast final state
-      io.to(room.id).emit('room_update', roomSummary(room));
-    }
-  }, 1000);
-}
-
-function stopRoomCountdown(room) {
-  if (room.state.timer) {
-    clearInterval(room.state.timer);
-    room.state.timer = null;
-  }
-  room.state.running = false;
-  room.state.timeLeft = null;
-  room.state.endTime = Date.now();
-}
-
-// Room summary to send clients
-function roomSummary(room) {
-  return {
-    id: room.id,
-    name: room.name,
-    settings: room.settings,
-    players: Object.values(room.players).map(p => ({
-      id: p.id,
-      name: p.name,
-      ready: !!p.ready,
-      finished: !!p.finished,
-      bestTimes: p.bestTimes || {}
-    })),
-    state: {
-      running: room.state.running,
-      timeLeft: room.state.timeLeft || room.settings.countdown
-    }
-  };
+// Room helper: create key for bestTimes storage based on level settings
+function roomLevelKey(level, n) {
+  if (level === 'custom') return `custom_${n}`;
+  return `${level}`;
 }
 
 // Create room
-function createRoom(hostSocket, opts) {
-  const id = uid();
-  const name = genName(Math.random() > 0.5 ? 2 : 3);
-  const settings = {
-    level: opts.level || 'easy',
-    n: opts.n || null,
-    cellSize: (opts.settings && opts.settings.cellSize) || DEFAULTS.cellSize,
-    fontCell: (opts.settings && opts.settings.fontCell) || DEFAULTS.fontCell,
-    fontTarget: (opts.settings && opts.settings.fontTarget) || DEFAULTS.fontTarget,
-    countdown: (opts.settings && opts.settings.countdown) || DEFAULTS.countdown
-  };
+function createRoom({ level = 'easy', n = 5, settings = {} } = {}) {
+  const roomId = shortid.generate();
   const room = {
-    id, name, hostId: hostSocket.id, settings,
-    players: {}, chat: [],
-    state: { running: false, timeLeft: settings.countdown, timer: null },
-    gridSeeds: {}, // playerId -> seed
+    id: roomId,
+    level,
+    n,
+    settings: Object.assign({
+      countdown: 600, // seconds
+      cellSize: 60,
+      fontCell: 25,
+      fontTarget: 65,
+      highContrast: false,
+    }, settings),
+    players: {}, // playerId -> playerState
+    createdAt: Date.now(),
+    status: 'lobby', // 'lobby' | 'running' | 'finished'
+    startTime: null, // epoch ms
+    timerInterval: null,
+    timeLeft: null,
+    seed: null,
   };
-  rooms[id] = room;
+  rooms[roomId] = room;
   return room;
 }
 
-// Utility: build grid size from level
-function levelToN(level, nOverride) {
-  if (level === 'easy') return 5;
-  if (level === 'medium') return 7;
-  if (level === 'hard') return 10;
-  if (level === 'extreme') return Math.max(10, parseInt(nOverride) || 10);
-  // accept numeric level
-  const num = parseInt(level);
-  if (!isNaN(num) && num >= 2) return Math.max(2, num);
-  return 5;
+// Validate cell_selected server-side ordering
+function validateSelection(playerState, cellNumber) {
+  if (!playerState) return false;
+  if (playerState.finished) return false;
+  return cellNumber === playerState.nextNumber;
 }
 
-// Socket.IO handlers
-io.on('connection', (socket) => {
-  console.log('socket connected', socket.id);
-
-  // Provide lobby room list on connect
-  socket.emit('room_list_update', Object.values(rooms).map(r => ({
+// Broadcast room list to all connected clients
+function broadcastRoomList() {
+  const list = Object.values(rooms).map(r => ({
     id: r.id,
-    name: r.name,
+    level: r.level,
+    n: r.n,
     players: Object.keys(r.players).length,
-    settings: r.settings
+    status: r.status,
+  }));
+  io.emit('room_list_update', list);
+}
+
+// Periodic cleanup for empty old rooms (optional)
+setInterval(() => {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000; // 24h
+  for (const id of Object.keys(rooms)) {
+    if (Object.keys(rooms[id].players).length === 0 && rooms[id].createdAt < cutoff) {
+      delete rooms[id];
+    }
+  }
+  broadcastRoomList();
+}, 60 * 60 * 1000);
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  // Assign ephemeral player record
+  const socketPlayer = {
+    socketId: socket.id,
+    playerId: shortid.generate(),
+    name: randomName(),
+    roomId: null,
+    disconnectedAt: null,
+  };
+  players[socket.id] = socketPlayer;
+
+  // Send current room list immediately
+  socket.emit('room_list_update', Object.values(rooms).map(r => ({
+    id: r.id, level: r.level, n: r.n, players: Object.keys(r.players).length, status: r.status
   })));
 
-  // create_room
-  socket.on('create_room', (payload, ack) => {
-    const playerName = payload.playerName || genName(2);
-    const room = createRoom(socket, payload);
-    // add host player
-    const player = {
-      id: socket.id,
-      name: playerName,
+  // Create room
+  socket.on('create_room', (data = {}) => {
+    const { level = 'easy', n = 5, playerName, settings = {} } = data;
+    const room = createRoom({ level, n, settings });
+    // Add player as host
+    const playerId = socketPlayer.playerId;
+    const name = playerName || socketPlayer.name;
+    room.players[playerId] = {
+      playerId,
       socketId: socket.id,
+      name,
+      isHost: true,
       ready: false,
+      nextNumber: 1,
       selectedNumbers: [],
       finished: false,
       finishTime: null,
-      bestTimes: {} // per level
+      bestTime: null,
+      disconnectTimer: null,
     };
-    room.players[socket.id] = player;
-    room.gridSeeds[socket.id] = genGridSeed();
-    socketsToRooms[socket.id] = room.id;
+    socketPlayer.name = name;
+    socketPlayer.roomId = room.id;
     socket.join(room.id);
-    // send ack with room info
-    socket.emit('room_update', roomSummary(room));
-    // broadcast updated lobby list
-    io.emit('room_list_update', Object.values(rooms).map(r => ({
-      id: r.id, name: r.name, players: Object.keys(r.players).length, settings: r.settings
-    })));
-    if (ack) ack({ ok: true, roomId: room.id });
+
+    // attach best time if exists
+    const key = roomLevelKey(room.level, room.n);
+    const existing = bestTimes[key] && bestTimes[key][playerId];
+    if (existing) room.players[playerId].bestTime = existing;
+
+    socket.emit('room_update', sanitizeRoom(room));
+    broadcastRoomList();
   });
 
-  // join_room
-  socket.on('join_room', (payload, ack) => {
-    const roomId = payload.roomId;
+  // Join room
+  socket.on('join_room', (data = {}) => {
+    const { roomId, playerName } = data;
     const room = rooms[roomId];
     if (!room) {
-      if (ack) ack({ ok: false, error: 'Room not found' });
+      socket.emit('player_kicked', { reason: 'room_not_found' });
       return;
     }
     if (Object.keys(room.players).length >= 4) {
-      if (ack) ack({ ok: false, error: 'Room full' });
+      socket.emit('player_kicked', { reason: 'room_full' });
       return;
     }
-    const playerName = payload.playerName || genName(2);
-    const player = {
-      id: socket.id,
-      name: playerName,
+    const playerId = socketPlayer.playerId;
+    const name = playerName || socketPlayer.name;
+    room.players[playerId] = {
+      playerId,
       socketId: socket.id,
+      name,
+      isHost: false,
       ready: false,
+      nextNumber: 1,
       selectedNumbers: [],
       finished: false,
       finishTime: null,
-      bestTimes: {} // per level
+      bestTime: null,
+      disconnectTimer: null,
     };
-    room.players[socket.id] = player;
-    room.gridSeeds[socket.id] = genGridSeed();
-    socketsToRooms[socket.id] = room.id;
+    socketPlayer.name = name;
+    socketPlayer.roomId = room.id;
     socket.join(room.id);
 
-    // send room update to all in room
-    io.to(room.id).emit('room_update', roomSummary(room));
-    io.emit('room_list_update', Object.values(rooms).map(r => ({
-      id: r.id, name: r.name, players: Object.keys(r.players).length, settings: r.settings
-    })));
-    // ack with room and personal seed
-    if (ack) ack({ ok: true, roomId: room.id, playerId: socket.id, seed: room.gridSeeds[socket.id] });
+    // attach best time if exists
+    const key = roomLevelKey(room.level, room.n);
+    const existing = bestTimes[key] && bestTimes[key][playerId];
+    if (existing) room.players[playerId].bestTime = existing;
+
+    io.to(room.id).emit('room_update', sanitizeRoom(room));
+    broadcastRoomList();
   });
 
-  // set_ready
-  socket.on('set_ready', (payload) => {
-    const roomId = socketsToRooms[socket.id];
+  // Set ready
+  socket.on('set_ready', (data = {}) => {
+    const { roomId, playerId, ready } = data;
     const room = rooms[roomId];
     if (!room) return;
-    const player = room.players[socket.id];
-    if (!player) return;
-    player.ready = !!payload.ready;
-    io.to(room.id).emit('room_update', roomSummary(room));
+    const p = room.players[playerId];
+    if (!p) return;
+    p.ready = !!ready;
+    io.to(room.id).emit('room_update', sanitizeRoom(room));
   });
 
-  // start_game (host-only)
-  socket.on('start_game', (payload, ack) => {
-    const roomId = payload.roomId || socketsToRooms[socket.id];
+  // Start game (host only)
+  socket.on('start_game', (data = {}) => {
+    const { roomId } = data;
     const room = rooms[roomId];
-    if (!room) { if (ack) ack({ ok: false }); return; }
-    if (socket.id !== room.hostId) { if (ack) ack({ ok: false, error: 'Not host' }); return; }
-    // assign seeds for players if absent
-    for (const pid in room.players) {
-      if (!room.gridSeeds[pid]) room.gridSeeds[pid] = genGridSeed();
-      // reset player state
-      room.players[pid].selectedNumbers = [];
-      room.players[pid].finished = false;
-      room.players[pid].finishTime = null;
+    if (!room) return;
+    // Only host may start
+    const host = Object.values(room.players).find(x => x.isHost);
+    if (!host || host.socketId !== socket.id) {
+      return;
     }
-    // start countdown
-    room.state.timeLeft = room.settings.countdown;
-    room.state.running = true;
-    room.state.startTime = Date.now();
-    startRoomCountdown(room);
+    if (room.status === 'running') return;
+    // initialize per-player state
+    room.status = 'running';
+    room.startTime = Date.now();
+    room.timeLeft = room.settings.countdown;
+    room.seed = Math.floor(Math.random() * 1e9);
+    for (const pid in room.players) {
+      const p = room.players[pid];
+      p.nextNumber = 1;
+      p.selectedNumbers = [];
+      p.finished = false;
+      p.finishTime = null;
+    }
+    // Start authoritative countdown tick
+    room.timerInterval = setInterval(() => {
+      const elapsedSec = Math.floor((Date.now() - room.startTime) / 1000);
+      const remaining = Math.max(room.settings.countdown - elapsedSec, 0);
+      room.timeLeft = remaining;
+      io.to(room.id).emit('game_state', {
+        roomId: room.id,
+        playersState: summarizePlayers(room),
+        timeLeft: remaining
+      });
+      if (remaining === 0) {
+        // game over: mark unfinished players as lost/finished with timeout
+        finalizeRoomOnTimeout(room);
+      }
+    }, 1000);
 
-    // Broadcast game_start with seeds and levelSettings
-    const levelN = levelToN(room.settings.level, room.settings.n);
     io.to(room.id).emit('game_start', {
       roomId: room.id,
-      startTime: room.state.startTime,
-      levelSettings: { level: room.settings.level, n: levelN },
-      gridSeeds: room.gridSeeds
+      startTime: room.startTime,
+      gridSeed: room.seed,
+      levelSettings: { level: room.level, n: room.n, settings: room.settings }
     });
-    io.to(room.id).emit('room_update', roomSummary(room));
-    if (ack) ack({ ok: true });
+    broadcastRoomList();
   });
 
-  // cell_selected
-  socket.on('cell_selected', (payload) => {
-    const roomId = socketsToRooms[socket.id];
+  // cell_selected: client sends selection attempt
+  socket.on('cell_selected', (data = {}) => {
+    const { roomId, playerId, cellNumber } = data;
     const room = rooms[roomId];
-    if (!room || !room.state.running) return;
-    const player = room.players[socket.id];
-    if (!player || player.finished) return;
-
-    const cellNumber = payload.cellNumber;
-    // validate that next expected number is correct: expected = player.selectedNumbers.length + 1
-    const expected = (player.selectedNumbers.length || 0) + 1;
-    const correct = (cellNumber === expected);
-    if (correct) {
-      player.selectedNumbers.push(cellNumber);
-      // check if finished
-      const levelN = levelToN(room.settings.level, room.settings.n);
-      const total = levelN * levelN;
-      if (player.selectedNumbers.length >= total) {
-        // player finished
-        player.finished = true;
-        // compute finishTime in seconds relative to server start
-        const finishTimeSeconds = Math.max(0, Math.round((Date.now() - room.state.startTime) / 1000));
-        player.finishTime = finishTimeSeconds;
-        // update bestTimes (keyed by level string)
-        const levelKey = `${room.settings.level}:${room.settings.n || ''}`;
-        bestTimes[levelKey] = bestTimes[levelKey] || {};
-        const prevBest = bestTimes[levelKey][player.name];
-        if (!prevBest || finishTimeSeconds < prevBest) {
-          bestTimes[levelKey][player.name] = finishTimeSeconds;
-          persistBestTimes();
-          // notify room of best time update
-          io.to(room.id).emit('best_time_update', { playerId: player.id, playerName: player.name, bestTime: finishTimeSeconds, levelKey });
-        }
-        io.to(room.id).emit('player_finished', { playerId: player.id, finishTime: finishTimeSeconds });
-      }
-      // Broadcast updated player selectedNumbers to room
-      io.to(room.id).emit('game_state', {
-        players: Object.values(room.players).map(p => ({ id: p.id, selected: p.selectedNumbers })),
-        timeLeft: room.state.timeLeft
-      });
-    } else {
-      // wrong selection: broadcast to player only (or to room as 'mistake' optionally)
-      socket.emit('cell_wrong', { expected });
-      io.to(room.id).emit('player_mistake', { playerId: player.id, at: cellNumber });
+    if (!room || room.status !== 'running') return;
+    const p = room.players[playerId];
+    if (!p) return;
+    // validate order
+    if (!validateSelection(p, cellNumber)) {
+      // invalid selection — ignore or optionally send feedback
+      socket.emit('invalid_selection', { reason: 'wrong_order', expected: p.nextNumber, got: cellNumber });
+      return;
     }
+    // accept selection
+    p.selectedNumbers.push(cellNumber);
+    p.nextNumber += 1;
+    // check finished
+    const total = room.level === 'custom' ? room.n * room.n : levelToN(room.level);
+    const isFinished = p.nextNumber > total;
+    if (isFinished && !p.finished) {
+      p.finished = true;
+      p.finishTime = Date.now() - room.startTime; // ms
+      // store best times
+      const key = roomLevelKey(room.level, room.n);
+      if (!bestTimes[key]) bestTimes[key] = {};
+      const prev = bestTimes[key][p.playerId];
+      if (!prev || p.finishTime < prev) {
+        bestTimes[key][p.playerId] = p.finishTime;
+        persistBestTimes();
+        io.to(room.id).emit('best_time_update', { playerId: p.playerId, bestTime: p.finishTime });
+      }
+      io.to(room.id).emit('player_finished', { playerId: p.playerId, finishTime: p.finishTime });
+    }
+    // broadcast updated room state
+    io.to(room.id).emit('game_state', {
+      roomId: room.id,
+      playersState: summarizePlayers(room),
+      timeLeft: room.timeLeft
+    });
   });
 
-  // send_chat
-  socket.on('send_chat', (payload) => {
-    const roomId = socketsToRooms[socket.id];
+  // chat
+  socket.on('send_chat', (data = {}) => {
+    const { roomId, playerId, message } = data;
     const room = rooms[roomId];
     if (!room) return;
-    const player = room.players[socket.id];
-    if (!player) return;
-    const msg = {
-      playerId: player.id,
-      playerName: player.name,
-      text: payload.message,
+    const p = room.players[playerId];
+    if (!p) return;
+    const payload = {
+      playerId: playerId,
+      name: p.name,
+      message,
       ts: Date.now()
     };
-    room.chat.push(msg);
-    io.to(room.id).emit('chat_message', msg);
+    io.to(room.id).emit('chat_message', payload);
   });
 
-  // disconnect handling
-  socket.on('disconnect', (reason) => {
-    console.log('socket disconnect', socket.id, reason);
-    const roomId = socketsToRooms[socket.id];
-    if (!roomId) return;
-    const room = rooms[roomId];
-    if (!room) return;
-
-    // remove player, broadcast
-    const player = room.players[socket.id];
-    delete room.players[socket.id];
-    delete room.gridSeeds[socket.id];
-    delete socketsToRooms[socket.id];
-
-    io.to(room.id).emit('player_kicked', { playerId: socket.id, reason: 'disconnected' });
-    io.to(room.id).emit('room_update', roomSummary(room));
-    io.emit('room_list_update', Object.values(rooms).map(r => ({
-      id: r.id, name: r.name, players: Object.keys(r.players).length, settings: r.settings
-    })));
-
-    // if room has no players, cleanup
-    if (Object.keys(room.players).length === 0) {
-      // clear timers
-      if (room.state.timer) clearInterval(room.state.timer);
-      delete rooms[roomId];
-    } else {
-      // if host left, reassign host
-      if (room.hostId === socket.id) {
-        room.hostId = Object.keys(room.players)[0];
+  // disconnect handling: mark disconnect time and set kick timer
+  socket.on('disconnect', () => {
+    const sp = players[socket.id];
+    if (!sp) return;
+    const { roomId, playerId } = sp;
+    if (roomId && rooms[roomId]) {
+      const room = rooms[roomId];
+      const p = room.players[playerId];
+      if (p) {
+        p.disconnectedAt = Date.now();
+        // start grace timer
+        p.disconnectTimer = setTimeout(() => {
+          // remove player
+          delete room.players[playerId];
+          io.to(room.id).emit('player_kicked', { playerId, reason: 'disconnected_timeout' });
+          io.to(room.id).emit('room_update', sanitizeRoom(room));
+          broadcastRoomList();
+          // if room empty, clear timers and delete
+          if (Object.keys(room.players).length === 0) {
+            if (room.timerInterval) clearInterval(room.timerInterval);
+            delete rooms[roomId];
+            broadcastRoomList();
+          }
+        }, DISCONNECT_GRACE_MS);
+        io.to(room.id).emit('room_update', sanitizeRoom(room));
       }
     }
+    delete players[socket.id];
   });
 
-  // quick helper to request room list
-  socket.on('get_rooms', () => {
-    socket.emit('room_list_update', Object.values(rooms).map(r => ({
-      id: r.id, name: r.name, players: Object.keys(r.players).length, settings: r.settings
-    })));
-  });
+  // Reconnect support: client can rejoin with same playerId by join_room (client side must handle)
+  // For simplicity we assume new connection gets new playerId. Implementing true reconnect requires token mapping.
+
+  // Utility responses
+  function sanitizeRoom(room) {
+    // return a light representation for clients
+    return {
+      id: room.id,
+      level: room.level,
+      n: room.n,
+      settings: room.settings,
+      players: Object.values(room.players).map(p => ({
+        playerId: p.playerId,
+        name: p.name,
+        isHost: p.isHost,
+        ready: p.ready,
+        finished: p.finished,
+        finishTime: p.finishTime,
+        bestTime: p.bestTime,
+        disconnected: !!p.disconnectedAt
+      })),
+      status: room.status
+    };
+  }
+
+  function summarizePlayers(room) {
+    const res = {};
+    for (const pid in room.players) {
+      const p = room.players[pid];
+      res[pid] = {
+        playerId: p.playerId,
+        name: p.name,
+        selectedCount: p.selectedNumbers.length,
+        nextNumber: p.nextNumber,
+        finished: p.finished,
+        finishTime: p.finishTime,
+        bestTime: p.bestTime,
+        disconnected: !!p.disconnectedAt
+      };
+    }
+    return res;
+  }
+
+  function levelToN(level) {
+    if (level === 'easy') return 5;
+    if (level === 'medium') return 7;
+    if (level === 'hard') return 10;
+    return 10;
+  }
+
+  function finalizeRoomOnTimeout(room) {
+    // mark unfinished players as finished with null/timeout
+    for (const pid in room.players) {
+      const p = room.players[pid];
+      if (!p.finished) {
+        p.finished = true;
+        p.finishTime = null; // indicate timeout/fail
+      }
+    }
+    room.status = 'finished';
+    if (room.timerInterval) {
+      clearInterval(room.timerInterval);
+      room.timerInterval = null;
+    }
+    io.to(room.id).emit('game_state', {
+      roomId: room.id,
+      playersState: summarizePlayers(room),
+      timeLeft: 0
+    });
+    broadcastRoomList();
+  }
 });
-
-// Serve static frontend
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Start server
-const PORT = process.env.PORT || 3000;
+ 
 server.listen(PORT, () => {
   console.log(`Grid Finder server running on http://localhost:${PORT}`);
 });
