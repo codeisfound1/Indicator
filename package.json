@@ -1,19 +1,14 @@
 {
   "name": "number-hunt-game",
   "version": "1.0.0",
-  "description": "Multiplayer number sequence game with Socket.io real-time sync",
+  "description": "Multiplayer number sequence game with real-time sync",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
-  "keywords": [
-    "game",
-    "multiplayer",
-    "realtime"
-  ],
-  "author": "",
+  "keywords": ["game", "multiplayer", "realtime"],
   "license": "ISC",
   "dependencies": {
     "express": "^4.18.2",
