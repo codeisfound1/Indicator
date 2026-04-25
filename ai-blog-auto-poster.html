@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Blog Auto Poster</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .header-subtitle {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+        }
+
+        .stat {
+            background: #f8f8f8;
+            padding: 16px;
+            border-radius: 12px;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #999;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        /* Card */
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 28px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            border: 1.5px solid #ddd;
+            border-radius: 8px;
+            font-size: 13px;
+            transition: all 0.3s;
+            font-family: inherit;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        /* Button */
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            border: 1.5px solid #ddd;
+        }
+
+        .btn-secondary:hover {
+            background: #e8e8e8;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        /* Info Box */
+        .info-box {
+            background: #f0f7ff;
+            border-left: 4px solid #667eea;
+            padding: 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #555;
+            line-height: 1.7;
+            margin-bottom: 20px;
+        }
+
+        .info-box a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .info-box a:hover {
+            text-decoration: underline;
+        }
+
+        /* Blog Grid */
+        .blog-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+        }
+
+        .blog-card {
+            background: #f8f8f8;
+            border: 1.5px solid #eee;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+
+        .blog-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .blog-card-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+
+        .blog-card-date {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 12px;
+        }
+
+        .blog-card-content {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 12px;
+            max-height: 80px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+        }
+
+        .blog-card-actions {
+            display: flex;
+            gap: 8px;
+            border-top: 1px solid #ddd;
+            padding-top: 12px;
+        }
+
+        .blog-card-actions button {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .blog-card-actions button:hover {
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+            grid-column: 1 / -1;
+        }
+
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .empty-text {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 700px;
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 32px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 16px;
+        }
+
+        .modal-meta {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 12px;
+        }
+
+        .modal-text {
+            font-size: 14px;
+            line-height: 1.8;
+            color: #666;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 24px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-ready {
+            background: #d4f4dd;
+            color: #2d7a4a;
+        }
+
+        .status-loading {
+            background: #ffe8d6;
+            color: #8b4513;
+        }
+
+        .status-error {
+            background: #fde8e8;
+            color: #8b3333;
+        }
+
+        /* Loading Spinner */
+        .loading-spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(102, 126, 234, 0.3);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>✨ AI Blog Auto Poster</h1>
+            <p class="header-subtitle">Tạo và đăng bài blog AI tự động</p>
+            <div class="stats-grid">
+                <div class="stat">
+                    <div class="stat-label">📝 Bài Viết</div>
+                    <div class="stat-value" id="countStat">0</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">⏰ Lên Lịch</div>
+                    <div class="stat-value">7:00 AM</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">📊 Trạng Thái</div>
+                    <div class="stat-value">
+                        <span class="status-badge status-ready" id="statusBadge">Sẵn sàng</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Setup Card -->
+        <div class="card">
+            <div class="card-title">⚙️ Cài Đặt API</div>
+
+            <div class="info-box">
+                <strong>🚀 Bước 1: Lấy API Key miễn phí</strong><br/>
+                Truy cập <a href="https://ai.google.dev/aistudio" target="_blank">ai.google.dev/aistudio</a>
+                → Nhấp "Create API Key" → Copy key<br/><br/>
+                <strong>Bước 2: Dán API Key vào ô dưới</strong><br/>
+                <strong>Bước 3: Nhấp "🔗 Kết Nối & Lưu"</strong><br/>
+                <strong>Bước 4: Nhấp "🧠 Tạo Bài Ngay" để test</strong>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">🔑 Google Gemini API Key</label>
+                <input type="password" class="form-input" id="apiKey" placeholder="AIzaSyD..." />
+                <small style="font-size: 11px; color: #999; display: block; margin-top: 4px;">
+                    Lấy từ: <a href="https://ai.google.dev/aistudio" target="_blank" style="color: #667eea;">ai.google.dev/aistudio</a>
+                </small>
+            </div>
+
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="saveApiKey()">🔗 Kết Nối & Lưu</button>
+                <button class="btn btn-secondary" onclick="clearApiKey()">🗑️ Xóa Key</button>
+            </div>
+        </div>
+
+        <!-- Config Card -->
+        <div class="card">
+            <div class="card-title">⚡ Cấu Hình Blog</div>
+
+            <div class="control-grid">
+                <div class="form-group">
+                    <label class="form-label">⏰ Lên lịch (giờ)</label>
+                    <input type="time" class="form-input" id="scheduleTime" value="07:00" onchange="updateSchedule()" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">🏷️ Chủ đề bài viết</label>
+                    <input type="text" class="form-input" id="topic" value="Công nghệ AI" placeholder="VD: AI, Blockchain..." />
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="generateBlog()">🧠 Tạo Bài Ngay</button>
+                <button class="btn btn-secondary" onclick="downloadExcel()">📥 Tải Excel</button>
+            </div>
+        </div>
+
+        <!-- Blog List Card -->
+        <div class="card">
+            <div class="card-title">📚 Danh Sách Bài Viết</div>
+            <div class="blog-grid" id="blogGrid">
+                <div class="empty-state">
+                    <div class="empty-icon">📭</div>
+                    <div class="empty-text">Chưa có bài viết nào</div>
+                    <p style="font-size: 12px; color: #999;">Nhấn "🧠 Tạo Bài Ngay" để bắt đầu</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal View Blog -->
+    <div class="modal" id="viewModal">
+        <div class="modal-content">
+            <div class="modal-title" id="modalTitle"></div>
+            <div class="modal-meta" id="modalMeta"></div>
+            <div class="modal-text" id="modalText"></div>
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="closeModal()">Đóng</button>
+                <button class="btn btn-primary" onclick="copyToClipboard()">📋 Copy</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============ Biến Global ============
+        let blogs = JSON.parse(localStorage.getItem('blogs')) || [];
+        let apiKey = localStorage.getItem('geminiApiKey') || '';
+        let scheduledJob = null;
+        let currentViewingBlog = null;
+
+        // ============ Hàm Lưu API Key ============
+        function saveApiKey() {
+            const key = document.getElementById('apiKey').value.trim();
+
+            if (!key) {
+                alert('⚠️ Vui lòng nhập API Key');
+                return;
+            }
+
+            // Kiểm tra format đơn giản
+            if (key.length < 20) {
+                alert('⚠️ API Key dường như không hợp lệ (quá ngắn)');
+                return;
+            }
+
+            localStorage.setItem('geminiApiKey', key);
+            apiKey = key;
+            document.getElementById('apiKey').value = '';
+
+            alert('✅ API Key đã lưu!\n\nBây giờ hãy:\n1. Nhập chủ đề bài viết\n2. Nhấp "🧠 Tạo Bài Ngay"');
+            startScheduler();
+        }
+
+        function clearApiKey() {
+            if (confirm('Xóa API Key?')) {
+                localStorage.removeItem('geminiApiKey');
+                apiKey = '';
+                alert('✅ API Key đã bị xóa');
+            }
+        }
+
+        // ============ Tạo Bài Viết ============
+        async function generateBlog() {
+            if (!apiKey) {
+                alert('⚠️ Vui lòng cài đặt API Key trước!');
+                return;
+            }
+
+            try {
+                updateStatusBadge('Đang tạo...', 'status-loading');
+                const topic = document.getElementById('topic').value || 'Công nghệ AI';
+
+                const prompt = `Viết một bài blog chuyên sâu về "${topic}". 
+Bài viết gồm:
+- 1 tiêu đề hấp dẫn
+- 2-3 câu giới thiệu
+- 3 điểm chính (mỗi điểm 2-3 dòng)
+- 1 kết luận
+
+Trả lời CHỈ JSON format: {"title": "...", "content": "..."}`;
+
+                console.log('📤 Gửi request tới API Gemini...');
+
+                const response = await fetch(
+                    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            contents: [
+                                {
+                                    parts: [
+                                        {
+                                            text: prompt
+                                        }
+                                    ]
+                                }
+                            ]
+                        })
+                    }
+                );
+
+                console.log('📥 Nhận response:', response.status);
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error?.message || 'Lỗi API');
+                }
+
+                const data = await response.json();
+                const text = data.contents?.[0]?.parts?.[0]?.text || '';
+
+                console.log('📝 Response text:', text.substring(0, 100));
+
+                // Parse JSON
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) {
+                    throw new Error('Không thể phân tích phản hồi từ API');
+                }
+
+                const blogData = JSON.parse(jsonMatch[0]);
+                const blog = {
+                    title: blogData.title || 'Bài viết mới',
+                    content: blogData.content || text,
+                    date: new Date().toLocaleString('vi-VN'),
+                    id: Date.now()
+                };
+
+                console.log('✅ Bài viết tạo thành công:', blog.title);
+
+                blogs.unshift(blog);
+                localStorage.setItem('blogs', JSON.stringify(blogs));
+                renderBlogs();
+                updateStatusBadge('Sẵn sàng ✓', 'status-ready');
+
+                alert('✅ Bài viết đã được tạo!\n\nTiêu đề: ' + blog.title);
+            } catch (error) {
+                console.error('❌ Lỗi:', error);
+                updateStatusBadge('Lỗi', 'status-error');
+                alert('❌ Lỗi: ' + error.message);
+            }
+        }
+
+        // ============ Hiển Thị Bài Viết ============
+        function renderBlogs() {
+            const grid = document.getElementById('blogGrid');
+            document.getElementById('countStat').textContent = blogs.length;
+
+            if (blogs.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">📭</div>
+                        <div class="empty-text">Chưa có bài viết nào</div>
+                        <p style="font-size: 12px; color: #999;">Nhấn "🧠 Tạo Bài Ngay" để bắt đầu</p>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = blogs
+                .map(
+                    blog => `
+                <div class="blog-card">
+                    <div class="blog-card-title">${escapeHtml(blog.title)}</div>
+                    <div class="blog-card-date">📅 ${blog.date}</div>
+                    <div class="blog-card-content">${escapeHtml(blog.content.substring(0, 150))}</div>
+                    <div class="blog-card-actions">
+                        <button onclick="viewBlog(${blog.id})">👁️ Xem</button>
+                        <button onclick="deleteBlog(${blog.id})">🗑️ Xóa</button>
+                    </div>
+                </div>
+            `
+                )
+                .join('');
+        }
+
+        // ============ Xem Chi Tiết ============
+        function viewBlog(id) {
+            const blog = blogs.find(b => b.id === id);
+            if (blog) {
+                currentViewingBlog = blog;
+                document.getElementById('modalTitle').textContent = blog.title;
+                document.getElementById('modalMeta').textContent = `📅 ${blog.date}`;
+                document.getElementById('modalText').textContent = blog.content;
+                document.getElementById('viewModal').classList.add('active');
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('viewModal').classList.remove('active');
+            currentViewingBlog = null;
+        }
+
+        function copyToClipboard() {
+            if (!currentViewingBlog) return;
+            const text = `${currentViewingBlog.title}\n\n${currentViewingBlog.content}`;
+            navigator.clipboard.writeText(text).then(() => {
+                alert('✅ Đã copy vào clipboard!');
+            });
+        }
+
+        // ============ Xóa Bài ============
+        function deleteBlog(id) {
+            if (confirm('Xác nhận xóa bài viết này?')) {
+                blogs = blogs.filter(b => b.id !== id);
+                localStorage.setItem('blogs', JSON.stringify(blogs));
+                renderBlogs();
+            }
+        }
+
+        // ============ Tải Excel ============
+        function downloadExcel() {
+            if (blogs.length === 0) {
+                alert('📭 Chưa có bài viết để tải!');
+                return;
+            }
+
+            const data = blogs.map(b => ({
+                'Tiêu Đề': b.title,
+                'Nội Dung (100 ký tự)': b.content.substring(0, 100),
+                'Ngày Tạo': b.date,
+            }));
+
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Bài viết');
+
+            const filename = 'blog_articles_' + new Date().toISOString().split('T')[0] + '.xlsx';
+            XLSX.writeFile(wb, filename);
+
+            alert('✅ File Excel đã tải xuống!');
+        }
+
+        // ============ Lên Lịch Tự Động ============
+        function startScheduler() {
+            const scheduleTime = document.getElementById('scheduleTime').value;
+
+            function checkAndGenerate() {
+                const now = new Date();
+                const currentTime =
+                    String(now.getHours()).padStart(2, '0') +
+                    ':' +
+                    String(now.getMinutes()).padStart(2, '0');
+
+                if (currentTime === scheduleTime && apiKey) {
+                    console.log('⏰ Giờ tới, tạo bài viết...');
+                    generateBlog();
+                }
+            }
+
+            if (scheduledJob) clearInterval(scheduledJob);
+            scheduledJob = setInterval(checkAndGenerate, 60000); // Kiểm tra mỗi phút
+
+            updateStatusBadge('Sẵn sàng ✓', 'status-ready');
+            console.log('✅ Scheduler đã bắt đầu. Sẽ tạo bài vào ' + scheduleTime);
+        }
+
+        function updateSchedule() {
+            startScheduler();
+        }
+
+        // ============ Hàm Helper ============
+        function updateStatusBadge(text, className) {
+            const badge = document.getElementById('statusBadge');
+            badge.textContent = text;
+            badge.className = `status-badge ${className}`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ============ Khởi Tạo ============
+        window.addEventListener('load', () => {
+            console.log('🚀 Ứng dụng AI Blog Auto Poster đã khởi động');
+            renderBlogs();
+
+            // Nếu có API Key lưu trữ, khởi động scheduler
+            if (apiKey) {
+                console.log('✅ Tìm thấy API Key, khởi động scheduler...');
+                startScheduler();
+            } else {
+                console.log('⚠️ Chưa có API Key. Vui lòng nhập API Key để bắt đầu.');
+            }
+        });
+    </script>
+</body>
+</html>
