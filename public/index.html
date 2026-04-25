@@ -1,99 +1,111 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Grid Finder - Multiplayer</title>
-  <link rel="stylesheet" href="style.css" />
-  <script src="/socket.io/socket.io.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Number Grid Game</title>
+  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="root">
-    <header class="topbar">
-      <div class="brand">GRID FINDER</div>
-      <div id="playerInfo" class="player-info"></div>
-    </header>
-
-    <main class="main">
-      <section id="screens">
-
-        <div id="screen-welcome" class="screen active">
-          <h1>Grid Finder</h1>
-          <input id="inputName" placeholder="Tên (tùy chọn)" maxlength="15"/>
-          <div class="row">
-            <button id="btnSingle" class="btn">Chơi Single</button>
-            <button id="btnLobby" class="btn secondary">Multiplayer</button>
+  <!-- Lobby Screen -->
+  <div id="lobby-screen" class="screen active">
+    <div class="lobby-container">
+      <h1>🔢 Number Grid Game</h1>
+      
+      <div class="lobby-content">
+        <div class="lobby-section">
+          <h2>Create Room</h2>
+          <div class="form-group">
+            <label>Your Name</label>
+            <input type="text" id="create-player-name" placeholder="Auto-generated if empty">
           </div>
-        </div>
-
-        <div id="screen-single" class="screen">
-          <h2>Chọn cấp độ</h2>
-          <div class="modes">
-            <button class="mode" data-level="easy">Dễ<br/>5x5</button>
-            <button class="mode" data-level="medium">Trung bình<br/>7x7</button>
-            <button class="mode" data-level="hard">Khó<br/>10x10</button>
-            <div class="mode custom">
-              <label>Siêu khó n x n (n ≥ 10)</label>
-              <input id="customN" type="number" min="10" value="12"/>
-              <button id="startCustom" class="btn">Bắt đầu</button>
-            </div>
-          </div>
-          <button class="btn back">Quay lại</button>
-        </div>
-
-        <div id="screen-lobby" class="screen">
-          <h2>Lobby</h2>
-          <div class="lobby-actions">
-            <select id="selectLevelLobby">
-              <option value="easy">Dễ</option>
-              <option value="medium">Trung bình</option>
-              <option value="hard">Khó</option>
-              <option value="custom">Siêu khó</option>
+          <div class="form-group">
+            <label>Game Level</label>
+            <select id="create-level">
+              <option value="easy">Easy (5x5, 1-25)</option>
+              <option value="medium">Medium (7x7, 1-49)</option>
+              <option value="hard">Hard (10x10, 1-100)</option>
+              <option value="extreme">Extreme (12x12, 1-144)</option>
             </select>
-            <input id="lobbyCustomN" type="number" min="10" placeholder="n (n≥10)" style="width:110px"/>
-            <button id="btnCreateRoom" class="btn">Tạo phòng</button>
-            <button id="btnRefreshRooms" class="btn secondary">Làm mới</button>
           </div>
-
-          <div id="roomsList" class="rooms"></div>
-          <div class="back-row"><button class="btn back">Quay lại</button></div>
+          <button id="create-room-btn" class="btn btn-primary">Create Room</button>
         </div>
 
-        <div id="screen-room" class="screen">
-          <h2 id="roomTitle">Phòng</h2>
-          <div class="room-top">
-            <div id="roomPlayers" class="room-players"></div>
-            <div class="room-controls">
-              <button id="btnStartGame" class="btn">Bắt đầu</button>
-              <button id="btnLeaveRoom" class="btn secondary">Rời phòng</button>
-            </div>
+        <div class="lobby-divider">OR</div>
+
+        <div class="lobby-section">
+          <h2>Join Room</h2>
+          <div class="form-group">
+            <label>Your Name</label>
+            <input type="text" id="join-player-name" placeholder="Auto-generated if empty">
           </div>
+          <button id="refresh-lobby-btn" class="btn btn-secondary">Refresh Rooms</button>
+          <div id="rooms-list" class="rooms-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-          <div class="game-area">
-            <div class="left-panel">
-              <div class="hud">
-                <div>Need: <span id="needNumber" class="needNumber">1</span></div>
-                <div>Countdown: <span id="countdown">600</span>s</div>
-                <div>Time: <span id="timeElapsed">0</span>s</div>
-                <div>Best: <span id="bestTime">-</span>s</div>
-              </div>
-              <div class="chat">
-                <div id="chatBox" class="chatBox"></div>
-                <div class="chatInput">
-                  <input id="chatMsg" placeholder="Gõ tin nhắn..." />
-                  <button id="btnSendMsg" class="btn small">Gửi</button>
-                </div>
-              </div>
-            </div>
-
-            <div class="grids-area" id="gridsArea"></div>
+  <!-- Game Room Screen -->
+  <div id="game-screen" class="screen">
+    <div class="game-container">
+      <!-- Header -->
+      <header class="game-header">
+        <div class="header-left">
+          <h2 id="room-name"></h2>
+          <span id="room-id" class="room-id"></span>
+        </div>
+        <div class="header-center">
+          <div class="current-number-display">
+            <span id="current-number">1</span>
           </div>
         </div>
+        <div class="header-right">
+          <div class="timer-container">
+            <span id="timer" class="timer">10:00</span>
+          </div>
+          <button id="leave-room-btn" class="btn btn-small">Leave</button>
+        </div>
+      </header>
 
-      </section>
-    </main>
+      <!-- Main Content -->
+      <div class="game-content">
+        <!-- Players Grids -->
+        <div id="players-grids-container" class="players-grids-container"></div>
+      </div>
 
-    <footer class="footer">© Grid Finder</footer>
+      <!-- Footer with Chat -->
+      <div class="game-footer">
+        <div class="chat-container">
+          <div id="chat-messages" class="chat-messages"></div>
+          <div class="chat-input-group">
+            <input 
+              type="text" 
+              id="chat-input" 
+              placeholder="Nhập tin nhắn..."
+              maxlength="100"
+            >
+            <button id="send-chat-btn" class="btn btn-small">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal cho custom size -->
+  <div id="custom-size-modal" class="modal">
+    <div class="modal-content">
+      <h3>Custom Game Size</h3>
+      <div class="form-group">
+        <label>Grid Size (n x n, n >= 10)</label>
+        <input type="number" id="custom-size-input" min="10" value="10">
+      </div>
+      <div class="modal-buttons">
+        <button id="custom-size-confirm" class="btn btn-primary">Confirm</button>
+        <button id="custom-size-cancel" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>
