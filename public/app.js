@@ -397,12 +397,12 @@ socket.on('room_state', (state) => {
   renderRoom(state);
   const newCurrent = state.players.find(p => p.id === myId)?.current;
   
-  // If current increased (player found correct number), start 10s delay
+   // If current increased (player found correct number), start 10s delay for THIS number
   if (newCurrent > oldCurrent && oldCurrent != null) {
     clearTimeout(targetDelay);
-    targetDelay = true; // During delay
+    targetDelay = true; // During 10s delay for this number
     setTimeout(() => {
-      targetDelay = false; // After 10s, show hint
+      targetDelay = false; // After 10s, show hint for this number
       // Re-render to show the hint highlight
       if (roomState) renderRoom(roomState);
     }, 10000);
