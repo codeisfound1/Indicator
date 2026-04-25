@@ -1,7 +1,7 @@
 {
   "name": "grid-finder",
   "version": "1.0.0",
-  "description": "Grid Finder - SVG grid generator with realtime multiplayer",
+  "description": "Grid Finder — Node.js + SVG grid generator + realtime multiplayer (Socket.IO)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,6 +9,6 @@
   "dependencies": {
     "express": "^4.18.2",
     "socket.io": "^4.7.2",
-    "short-unique-id": "^5.1.5"
+    "shortid": "^2.2.16"
   }
 }
