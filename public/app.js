@@ -1,4 +1,11 @@
-const socket = io();
+const socket = io({
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  reconnectionAttempts: Infinity,
+  reconnectProbability: 1
+});
 
 // Game State
 const gameState = {
@@ -15,20 +22,40 @@ const gameState = {
   gameStartTime: null,
   timerInterval: null,
   roomPlayers: [],
-  totalGridSize: 25
+  totalGridSize: 25,
+  connected: false
 };
 
-// Socket Connection
+// Socket Connection Events
 socket.on('connect', () => {
   console.log('✅ Connected to server:', socket.id);
+  gameState.connected = true;
+  gameState.playerId = socket.id;
+  document.body.style.opacity = '1';
+});
+
+socket.on('connected', (data) => {
+  console.log('✅ Connection confirmed:', data.playerId);
+  gameState.playerId = data.playerId;
 });
 
 socket.on('connect_error', (error) => {
   console.error('❌ Connection error:', error);
+  gameState.connected = false;
 });
 
-socket.on('disconnect', () => {
-  console.log('🔴 Disconnected from server');
+socket.on('disconnect', (reason) => {
+  console.log('⚠️ Disconnected - Reason:', reason);
+  gameState.connected = false;
+  document.body.style.opacity = '0.6';
+  
+  if (reason === 'io server disconnect') {
+    socket.connect();
+  }
+});
+
+socket.on('ping', (data) => {
+  socket.emit('pong', { timestamp: Date.now() });
 });
 
 // Socket Events - Room
@@ -70,18 +97,15 @@ socket.on('gameStarted', (data) => {
 });
 
 socket.on('playerProgress', (data) => {
-  // Update current number if it's us
   if (data.playerId === socket.id) {
     gameState.currentNumber = data.currentNumber;
     document.getElementById('currentNumber').textContent = data.currentNumber;
     
-    // Check if game complete
     if (data.currentNumber > gameState.totalGridSize) {
       endGame(data.bestTime);
     }
   }
 
-  // Update player in list
   const playerIdx = gameState.roomPlayers.findIndex(p => p.id === data.playerId);
   if (playerIdx !== -1) {
     gameState.roomPlayers[playerIdx].currentNumber = data.currentNumber;
@@ -109,7 +133,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupLobbyListeners() {
-  // Level buttons
   document.querySelectorAll('.level-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.level-btn').forEach(b => b.classList.remove('active'));
@@ -126,8 +149,12 @@ function setupLobbyListeners() {
     });
   });
 
-  // Create Room
   document.getElementById('createBtn').addEventListener('click', () => {
+    if (!gameState.connected) {
+      alert('Not connected to server. Please wait...');
+      return;
+    }
+
     const name = document.getElementById('createName').value.trim();
     const roomName = document.getElementById('createRoomName').value.trim();
     const customSize = parseInt(document.getElementById('customSize').value) || 10;
@@ -147,8 +174,12 @@ function setupLobbyListeners() {
     });
   });
 
-  // Join Room
   document.getElementById('joinBtn').addEventListener('click', () => {
+    if (!gameState.connected) {
+      alert('Not connected to server. Please wait...');
+      return;
+    }
+
     const name = document.getElementById('joinName').value.trim();
     const code = document.getElementById('roomCode').value.trim().toUpperCase();
 
@@ -237,7 +268,6 @@ function renderGrid() {
     const x = col * (cellSize + 4);
     const y = row * (cellSize + 4);
 
-    // Rectangle
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     rect.setAttribute('x', x);
     rect.setAttribute('y', y);
@@ -255,7 +285,7 @@ function renderGrid() {
     }
 
     rect.addEventListener('click', () => {
-      if (num === gameState.currentNumber) {
+      if (num === gameState.currentNumber && gameState.connected) {
         socket.emit('selectNumber', { number: num });
       }
     });
@@ -272,7 +302,6 @@ function renderGrid() {
       }
     });
 
-    // Text
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     text.setAttribute('x', x + cellSize / 2);
     text.setAttribute('y', y + cellSize / 2);
