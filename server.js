@@ -10,7 +10,16 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: "*" }
+  cors: { origin: "*" },
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  reconnectionAttempts: Infinity,
+  pingInterval: 25000,
+  pingTimeout: 60000,
+  maxHttpBufferSize: 1e6,
+  allowEIO3: true
 });
 
 // Serve static files
@@ -59,6 +68,16 @@ function generateColors(count) {
 // Socket.io connection
 io.on('connection', (socket) => {
   console.log('🟢 Player connected:', socket.id);
+  
+  socket.emit('connected', { 
+    playerId: socket.id,
+    timestamp: Date.now()
+  });
+
+  // Keep-alive ping
+  const pingInterval = setInterval(() => {
+    socket.emit('ping', { timestamp: Date.now() });
+  }, 20000);
 
   socket.on('createRoom', (data) => {
     try {
@@ -260,6 +279,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     try {
+      clearInterval(pingInterval);
       const player = players.get(socket.id);
       if (player) {
         const room = rooms.get(player.roomId);
@@ -279,8 +299,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('error', (error) => {
-    console.error('❌ Socket error:', error);
+  socket.on('pong', (data) => {
+    // Keep-alive response
   });
 });
 
