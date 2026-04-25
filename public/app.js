@@ -10,6 +10,7 @@ let myId        = null;
 let myName      = null;
 let currentRoom = null;   // { roomId, roomName, hostId, ... }
 let roomState   = null;   // latest room_state from server
+let targetDelay = null;   // timeout for showing next target after 10s delay
 
 // ── DOM refs ────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -111,7 +112,8 @@ function buildGrid(panel, playerData, isMe) {
     const y    = row * (cellSize + gap);
     const done = num < current;
     const isNext = num === current;
-
+    // Only show hint after 10s delay
+    const showHintForThis = showHint && isNext;
     const g = document.createElementNS(ns, 'g');
 
     // Cell rect
@@ -122,9 +124,14 @@ function buildGrid(panel, playerData, isMe) {
     rect.setAttribute('height', cellSize);
     rect.setAttribute('rx', Math.max(3, cellSize * 0.12));
     rect.setAttribute('fill', done ? '#1c2538' : colors[idx]);
-    rect.setAttribute('stroke', isNext ? '#fff' : 'rgba(0,0,0,.25)');
-    rect.setAttribute('stroke-width', isNext ? '2.5' : '1');
-    if (isNext && isMe && !completed) {
+    //rect.setAttribute('stroke', isNext ? '#fff' : 'rgba(0,0,0,.25)');
+    //rect.setAttribute('stroke-width', isNext ? '2.5' : '1');
+    //if (isNext && isMe && !completed) {
+    //  rect.style.filter = 'drop-shadow(0 0 6px rgba(255,255,255,.7))';
+    //}
+   rect.setAttribute('stroke', showHintForThis ? '#fff' : 'rgba(0,0,0,.25)');
+    rect.setAttribute('stroke-width', showHintForThis ? '2.5' : '1');
+    if (showHintForThis && isMe && !completed) {
       rect.style.filter = 'drop-shadow(0 0 6px rgba(255,255,255,.7))';
     }
     g.appendChild(rect);
@@ -202,7 +209,14 @@ function renderRoom(state) {
   // Find my player data for target display
   const me = state.players.find(p => p.id === myId);
   if (me) {
-    $('target-display').textContent = me.completed ? '✓' : me.current;
+    if (me.completed) {
+      $('target-display').textContent = '✓';
+    } else if (targetDelay) {
+      // During 10s delay, show "?"
+      $('target-display').textContent = '?';
+    } else {
+      $('target-display').textContent = me.current;
+    }
   }
 
   // Build/update player panels
@@ -380,12 +394,29 @@ socket.on('joined_room', ({ roomId, roomName }) => {
 });
 
 socket.on('left_room', () => {
+  clearTimeout(targetDelay);
+  targetDelay = null;
   currentRoom = null;
   showScreen('lobby');
   socket.emit('get_lobby');
 });
 
-socket.on('room_state', renderRoom);
+socket.on('room_state', (state) => {
+  const oldCurrent = roomState?.players.find(p => p.id === myId)?.current;
+  renderRoom(state);
+  const newCurrent = state.players.find(p => p.id === myId)?.current;
+  
+  // If current increased (player found correct number), start 10s delay
+  if (newCurrent > oldCurrent && oldCurrent != null) {
+    clearTimeout(targetDelay);
+    targetDelay = true;
+    setTimeout(() => {
+      targetDelay = null;
+      // Re-render to show the next number
+      if (roomState) renderRoom(roomState);
+    }, 10000);
+  }
+});
 
 socket.on('countdown', updateCountdown);
 
