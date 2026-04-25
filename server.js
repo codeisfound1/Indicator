@@ -1,392 +1,238 @@
-// server.js
-// Express + Socket.IO server for Grid Finder (fixed sync & selection issues)
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
-const fs = require('fs');
+const { v4: uuidv4 } = require('uuid');
 const path = require('path');
-const shortid = require('shortid');
-
-const PORT = process.env.PORT || 3000;
-const PERSIST_FILE = path.join(__dirname, 'best_times.json');
-const DISCONNECT_GRACE_MS = 30 * 1000; // 30s
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = require('socket.io')(server, { cors: { origin: "*" } });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// In-memory stores
-const rooms = {};
-const players = {};
-let bestTimes = {};
+// In-memory state
+const rooms = new Map(); // roomId -> room
+const players = new Map(); // socketId -> { name, roomId }
 
-// Load persisted best times
-try {
-  if (fs.existsSync(PERSIST_FILE)) {
-    bestTimes = JSON.parse(fs.readFileSync(PERSIST_FILE, 'utf8')) || {};
-  }
-} catch (e) {
-  console.error('Failed to load best times:', e);
+const ADJECTIVES = ['Swift','Bright','Quick','Smart','Cool','Fast','Bold','Happy'];
+const NOUNS = ['Tiger','Eagle','Dragon','Phoenix','Falcon','Wolf','Bear','Lion'];
+const NAMES = ['Alex','Nova','Max','Zara','Kai','Luna','Rex','Sage','Jax','Aria'];
+
+function genRoomName(){
+  return ADJECTIVES[Math.floor(Math.random()*ADJECTIVES.length)]
+    + NOUNS[Math.floor(Math.random()*NOUNS.length)]
+    + Math.floor(Math.random()*100);
+}
+function genPlayerName(){
+  return NAMES[Math.floor(Math.random()*NAMES.length)] + Math.floor(Math.random()*1000);
 }
 
-function persistBestTimes() {
-  try {
-    fs.writeFileSync(PERSIST_FILE, JSON.stringify(bestTimes, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Failed to persist best times:', e);
-  }
+function getLevelConfig(level, customN){
+  if(level === 'easy') return { rows:5, cols:5 };
+  if(level === 'medium') return { rows:7, cols:7 };
+  if(level === 'hard') return { rows:10, cols:10 };
+  const n = Math.max(10, parseInt(customN) || 10);
+  return { rows: n, cols: n };
 }
 
-const TOKENS = [
-  "bop","ziv","mek","lun","tor","sai","ka","ri","mo","fen","sam","tuk","vel","jun","pib","noz","gim","rax","koi","yul",
-  "az","be","ci","do","ek","fi","go","hu","il","jo","ku","li","ni","op","pi","qu","ru","si","ta","ul","vo","wi","xo","ye","zu"
+function generateShuffledNumbers(rows, cols){
+  const total = rows*cols;
+  const arr = [];
+  for(let i=1;i<=total;i++) arr.push(i);
+  for(let i=arr.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+const PRESET_COLORS = [
+  '#FF6B6B','#4ECDC4','#45B7D1','#FFA07A','#98D8C8',
+  '#F7DC6F','#BB8FCE','#85C1E2','#F8B88B','#ABEBC6',
+  '#FAD7A0','#D7BDE2','#A3E4D7','#F9E79F','#D5F4E6',
+  '#FADBD8','#EBF5FB','#FCF3CF','#A2D5AB','#FEDABE'
 ];
-function randomName() {
-  const a = TOKENS[Math.floor(Math.random() * TOKENS.length)];
-  const b = TOKENS[Math.floor(Math.random() * TOKENS.length)];
-  return (a + '-' + b).slice(0, 18);
+
+function randomColor(exclude){
+  const pool = PRESET_COLORS.filter(c => c !== exclude);
+  return pool[Math.floor(Math.random()*pool.length)];
 }
 
-function levelToN(level) {
-  if (level === 'easy') return 5;
-  if (level === 'medium') return 7;
-  if (level === 'hard') return 10;
-  return 10;
+function makePlayerGrid(rows, cols){
+  const nums = generateShuffledNumbers(rows, cols);
+  const colors = [];
+  for(let i=0;i<rows*cols;i++) colors.push(randomColor(null));
+  return { numbers: nums, colors };
 }
 
-function roomLevelKey(level, n) {
-  if (level === 'custom') return `custom_${n}`;
-  return `${level}_${n}`;
-}
-
-function createRoom({ level = 'easy', n = null, settings = {} } = {}) {
-  const roomId = shortid.generate();
-  const actualN = (level === 'custom') ? (n || 10) : levelToN(level);
-  const room = {
-    id: roomId,
-    level,
-    n: actualN,
-    settings: Object.assign({
-      countdown: 600,
-      cellSize: 60,
-      fontCell: 25,
-      fontTarget: 65,
-      highContrast: false,
-    }, settings),
-    players: {}, // playerId -> playerState
-    createdAt: Date.now(),
-    status: 'lobby',
-    startTime: null,
-    timerInterval: null,
-    timeLeft: null,
-    seed: null,
-  };
-  rooms[roomId] = room;
-  return room;
-}
-
-function broadcastRoomList() {
-  const list = Object.values(rooms).map(r => ({
-    id: r.id,
-    level: r.level,
-    n: r.n,
-    players: Object.keys(r.players).length,
-    status: r.status,
-  }));
-  io.emit('room_list_update', list);
-}
-
-setInterval(() => {
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-  for (const id of Object.keys(rooms)) {
-    if (Object.keys(rooms[id].players).length === 0 && rooms[id].createdAt < cutoff) {
-      delete rooms[id];
-    }
-  }
-  broadcastRoomList();
-}, 60 * 60 * 1000);
-
-io.on('connection', (socket) => {
-  const socketPlayer = {
-    socketId: socket.id,
-    playerId: shortid.generate(),
-    name: randomName(),
-    roomId: null,
-    disconnectedAt: null,
-  };
-  players[socket.id] = socketPlayer;
-
-  socket.emit('room_list_update', Object.values(rooms).map(r => ({
-    id: r.id, level: r.level, n: r.n, players: Object.keys(r.players).length, status: r.status
-  })));
-
-  socket.on('create_room', (data = {}) => {
-    const { level = 'easy', n = 5, playerName, settings = {} } = data;
-    const room = createRoom({ level, n, settings });
-    const playerId = socketPlayer.playerId;
-    const name = playerName || socketPlayer.name;
-    room.players[playerId] = {
-      playerId,
-      socketId: socket.id,
-      name,
-      isHost: true,
-      ready: false,
-      nextNumber: 1,
-      selectedNumbers: [],
-      finished: false,
-      finishTime: null,
-      bestTime: null,
-      disconnectTimer: null,
-    };
-    socketPlayer.name = name;
-    socketPlayer.roomId = room.id;
-    socket.join(room.id);
-
-    const key = roomLevelKey(room.level, room.n);
-    const existing = bestTimes[key] && bestTimes[key][playerId];
-    if (existing) room.players[playerId].bestTime = existing;
-
-    socket.emit('room_update', sanitizeRoom(room));
-    broadcastRoomList();
-  });
-
-  socket.on('join_room', (data = {}) => {
-    const { roomId, playerName } = data;
-    const room = rooms[roomId];
-    if (!room) {
-      socket.emit('player_kicked', { reason: 'room_not_found' });
-      return;
-    }
-    if (Object.keys(room.players).length >= 4) {
-      socket.emit('player_kicked', { reason: 'room_full' });
-      return;
-    }
-    const playerId = socketPlayer.playerId;
-    const name = playerName || socketPlayer.name;
-    room.players[playerId] = {
-      playerId,
-      socketId: socket.id,
-      name,
-      isHost: false,
-      ready: false,
-      nextNumber: 1,
-      selectedNumbers: [],
-      finished: false,
-      finishTime: null,
-      bestTime: null,
-      disconnectTimer: null,
-    };
-    socketPlayer.name = name;
-    socketPlayer.roomId = room.id;
-    socket.join(room.id);
-
-    const key = roomLevelKey(room.level, room.n);
-    const existing = bestTimes[key] && bestTimes[key][playerId];
-    if (existing) room.players[playerId].bestTime = existing;
-
-    io.to(room.id).emit('room_update', sanitizeRoom(room));
-    broadcastRoomList();
-  });
-
-  socket.on('set_ready', (data = {}) => {
-    const { roomId, playerId, ready } = data;
-    const room = rooms[roomId];
-    if (!room) return;
-    const p = room.players[playerId];
-    if (!p) return;
-    p.ready = !!ready;
-    io.to(room.id).emit('room_update', sanitizeRoom(room));
-  });
-
-  socket.on('start_game', (data = {}) => {
-    const { roomId } = data;
-    const room = rooms[roomId];
-    if (!room) return;
-    const host = Object.values(room.players).find(x => x.isHost);
-    if (!host || host.socketId !== socket.id) return;
-    if (room.status === 'running') return;
-
-    room.status = 'running';
-    room.startTime = Date.now();
-    room.timeLeft = room.settings.countdown;
-    room.seed = Math.floor(Math.random() * 1e9);
-    for (const pid in room.players) {
-      const p = room.players[pid];
-      p.nextNumber = 1;
-      p.selectedNumbers = [];
-      p.finished = false;
-      p.finishTime = null;
-    }
-
-    room.timerInterval = setInterval(() => {
-      const elapsedSec = Math.floor((Date.now() - room.startTime) / 1000);
-      const remaining = Math.max(room.settings.countdown - elapsedSec, 0);
-      room.timeLeft = remaining;
-      io.to(room.id).emit('game_state', {
-        roomId: room.id,
-        playersState: summarizePlayers(room),
-        timeLeft: remaining
+function getAvailableRooms(){
+  const list = [];
+  rooms.forEach((room, id) => {
+    if(room.players.length < 4 && room.status === 'waiting'){
+      list.push({
+        roomId: id,
+        hostName: room.players[0]?.name || 'Host',
+        level: room.level,
+        playerCount: room.players.length
       });
-      if (remaining === 0) {
-        finalizeRoomOnTimeout(room);
-      }
-    }, 1000);
+    }
+  });
+  return list;
+}
 
-    io.to(room.id).emit('game_start', {
-      roomId: room.id,
-      startTime: room.startTime,
-      gridSeed: room.seed,
-      levelSettings: { level: room.level, n: room.n, settings: room.settings }
-    });
-    broadcastRoomList();
+io.on('connection', socket => {
+  console.log('connected', socket.id);
+
+  socket.on('createRoom', (data={}) => {
+    const level = data.level || 'easy';
+    const customN = data.customN;
+    const roomId = genRoomName();
+    const playerName = data.playerName || genPlayerName();
+    const config = getLevelConfig(level, customN);
+
+    const player = {
+      id: socket.id,
+      name: playerName,
+      grid: makePlayerGrid(config.rows, config.cols),
+      currentNumber: 1,
+      startTime: null,
+      endTime: null,
+      bestTime: null,
+      completed: false
+    };
+
+    const room = {
+      id: roomId,
+      level,
+      customN: customN || null,
+      rows: config.rows,
+      cols: config.cols,
+      host: socket.id,
+      players: [player],
+      status: 'waiting', // waiting | playing | finished
+      createdAt: Date.now()
+    };
+
+    rooms.set(roomId, room);
+    players.set(socket.id, { name: playerName, roomId });
+
+    socket.join(roomId);
+    socket.emit('roomCreated', { roomId, playerName, level, rows: config.rows, cols: config.cols });
+    io.to(roomId).emit('updatePlayers', room.players.map(p => ({ id: p.id, name: p.name, currentNumber: p.currentNumber, bestTime: p.bestTime })));
+    io.emit('updateLobbies', getAvailableRooms());
   });
 
-  socket.on('cell_selected', (data = {}) => {
-    const { roomId, playerId, cellNumber } = data;
-    const room = rooms[roomId];
-    if (!room || room.status !== 'running') return;
-    const p = room.players[playerId];
-    if (!p) return;
-    const num = Number(cellNumber);
-    if (!Number.isInteger(num) || num < 1 || num > room.n * room.n) {
-      socket.emit('invalid_selection', { reason: 'out_of_range', got: cellNumber });
-      return;
-    }
-    if (p.finished) return;
+  socket.on('joinRoom', (data={}, cb) => {
+    const { roomId } = data;
+    const room = rooms.get(roomId);
+    if(!room){ if(cb) cb({ error: 'Room not found' }); return; }
+    if(room.players.length >= 4){ if(cb) cb({ error: 'Room full' }); return; }
 
-    // Validate order: next expected number is p.nextNumber
-    if (num !== p.nextNumber) {
-      socket.emit('invalid_selection', { reason: 'wrong_order', expected: p.nextNumber, got: num });
-      return;
-    }
+    const playerName = data.playerName || genPlayerName();
+    const config = getLevelConfig(room.level, room.customN);
+    const player = {
+      id: socket.id,
+      name: playerName,
+      grid: makePlayerGrid(config.rows, config.cols),
+      currentNumber: 1,
+      startTime: null,
+      endTime: null,
+      bestTime: null,
+      completed: false
+    };
 
-    // Accept selection
-    p.selectedNumbers.push(num);
-    p.nextNumber += 1;
+    room.players.push(player);
+    players.set(socket.id, { name: playerName, roomId });
+    socket.join(roomId);
 
-    const total = room.n * room.n;
-    if (p.nextNumber > total && !p.finished) {
-      p.finished = true;
-      p.finishTime = Date.now() - room.startTime;
-      // update best times
-      const key = roomLevelKey(room.level, room.n);
-      if (!bestTimes[key]) bestTimes[key] = {};
-      const prev = bestTimes[key][p.playerId];
-      if (!prev || p.finishTime < prev) {
-        bestTimes[key][p.playerId] = p.finishTime;
-        persistBestTimes();
-        io.to(room.id).emit('best_time_update', { playerId: p.playerId, bestTime: p.finishTime });
-      }
-      io.to(room.id).emit('player_finished', { playerId: p.playerId, finishTime: p.finishTime });
-    }
-
-    io.to(room.id).emit('game_state', {
-      roomId: room.id,
-      playersState: summarizePlayers(room),
-      timeLeft: room.timeLeft
-    });
+    socket.emit('roomJoined', { roomId, playerName, level: room.level, rows: room.rows, cols: room.cols });
+    io.to(roomId).emit('updatePlayers', room.players.map(p => ({ id: p.id, name: p.name, currentNumber: p.currentNumber, bestTime: p.bestTime })));
+    io.emit('updateLobbies', getAvailableRooms());
+    if(cb) cb({ ok: true });
   });
 
-  socket.on('send_chat', (data = {}) => {
-    const { roomId, playerId, message } = data;
-    const room = rooms[roomId];
-    if (!room) return;
-    const p = room.players[playerId];
-    if (!p) return;
-    const payload = { playerId, name: p.name, message, ts: Date.now() };
-    io.to(room.id).emit('chat_message', payload);
+  socket.on('getAvailableRooms', () => {
+    socket.emit('availableRooms', getAvailableRooms());
+  });
+
+  socket.on('startGame', (data={}) => {
+    const meta = players.get(socket.id);
+    if(!meta) return;
+    const room = rooms.get(meta.roomId);
+    if(!room) return;
+    if(room.host !== socket.id) return;
+    room.status = 'playing';
+    room.players.forEach(p => { p.currentNumber = 1; p.startTime = Date.now(); p.endTime = null; p.completed = false; });
+    io.to(room.id).emit('gameStarted', { timeLimit: 600 }); // 600s
+  });
+
+  socket.on('selectNumber', (data={}) => {
+    const meta = players.get(socket.id);
+    if(!meta) return;
+    const room = rooms.get(meta.roomId);
+    if(!room) return;
+    const player = room.players.find(p => p.id === socket.id);
+    if(!player) return;
+
+    const expected = player.currentNumber;
+    const selected = data.selected;
+    if(selected === expected){
+      player.currentNumber++;
+      if(player.currentNumber > room.rows*room.cols){
+        player.completed = true;
+        player.endTime = Date.now();
+        const timeSpent = Math.round((player.endTime - player.startTime) / 1000);
+        if(!player.bestTime || timeSpent < player.bestTime) player.bestTime = timeSpent;
+        io.to(room.id).emit('playerCompleted', { playerId: player.id, name: player.name, timeSpent, bestTime: player.bestTime });
+      }
+      io.to(room.id).emit('numberSelected', { playerId: player.id, currentNumber: player.currentNumber, players: room.players.map(p=>({ id:p.id, currentNumber:p.currentNumber, completed:p.completed, bestTime:p.bestTime })) });
+    } else {
+      socket.emit('wrongNumber', { expected, selected });
+    }
+  });
+
+  socket.on('sendMessage', (data={}) => {
+    const meta = players.get(socket.id);
+    if(!meta) return;
+    io.to(meta.roomId).emit('chatMessage', { from: meta.name, message: data.message, ts: Date.now() });
+  });
+
+  socket.on('kickIfDisconnected', () => {
+    // handled by 'disconnect'
+  });
+
+  socket.on('leaveRoom', () => {
+    const meta = players.get(socket.id);
+    if(!meta) return;
+    const room = rooms.get(meta.roomId);
+    if(!room) return;
+    room.players = room.players.filter(p => p.id !== socket.id);
+    socket.leave(meta.roomId);
+    players.delete(socket.id);
+    if(room.players.length === 0){
+      rooms.delete(room.id);
+    } else {
+      if(room.host === socket.id) room.host = room.players[0].id;
+      io.to(room.id).emit('updatePlayers', room.players.map(p => ({ id:p.id, name:p.name, currentNumber:p.currentNumber })));
+    }
+    io.emit('updateLobbies', getAvailableRooms());
   });
 
   socket.on('disconnect', () => {
-    const sp = players[socket.id];
-    if (!sp) return;
-    const { roomId, playerId } = sp;
-    if (roomId && rooms[roomId]) {
-      const room = rooms[roomId];
-      const p = room.players[playerId];
-      if (p) {
-        p.disconnectedAt = Date.now();
-        p.disconnectTimer = setTimeout(() => {
-          delete room.players[playerId];
-          io.to(room.id).emit('player_kicked', { playerId, reason: 'disconnected_timeout' });
-          io.to(room.id).emit('room_update', sanitizeRoom(room));
-          broadcastRoomList();
-          if (Object.keys(room.players).length === 0) {
-            if (room.timerInterval) clearInterval(room.timerInterval);
-            delete rooms[roomId];
-            broadcastRoomList();
-          }
-        }, DISCONNECT_GRACE_MS);
-        io.to(room.id).emit('room_update', sanitizeRoom(room));
+    const meta = players.get(socket.id);
+    if(meta){
+      const room = rooms.get(meta.roomId);
+      if(room){
+        room.players = room.players.filter(p => p.id !== socket.id);
+        io.to(room.id).emit('playerDisconnected', { id: socket.id, name: meta.name });
+        if(room.players.length === 0) rooms.delete(room.id);
+        else if(room.host === socket.id) room.host = room.players[0].id;
       }
+      players.delete(socket.id);
+      io.emit('updateLobbies', getAvailableRooms());
     }
-    delete players[socket.id];
+    console.log('disconnected', socket.id);
   });
-
-  // utilities
-  function sanitizeRoom(room) {
-    return {
-      id: room.id,
-      level: room.level,
-      n: room.n,
-      settings: room.settings,
-      players: Object.values(room.players).map(p => ({
-        playerId: p.playerId,
-        name: p.name,
-        isHost: p.isHost,
-        ready: p.ready,
-        finished: p.finished,
-        finishTime: p.finishTime,
-        bestTime: p.bestTime,
-        disconnected: !!p.disconnectedAt
-      })),
-      status: room.status
-    };
-  }
-
-  function summarizePlayers(room) {
-    const res = {};
-    for (const pid in room.players) {
-      const p = room.players[pid];
-      res[pid] = {
-        playerId: p.playerId,
-        name: p.name,
-        selectedNumbers: p.selectedNumbers.slice(),
-        selectedCount: p.selectedNumbers.length,
-        nextNumber: p.nextNumber,
-        finished: p.finished,
-        finishTime: p.finishTime,
-        bestTime: p.bestTime,
-        disconnected: !!p.disconnectedAt
-      };
-    }
-    return res;
-  }
-
-  function finalizeRoomOnTimeout(room) {
-    for (const pid in room.players) {
-      const p = room.players[pid];
-      if (!p.finished) {
-        p.finished = true;
-        p.finishTime = null;
-      }
-    }
-    room.status = 'finished';
-    if (room.timerInterval) {
-      clearInterval(room.timerInterval);
-      room.timerInterval = null;
-    }
-    io.to(room.id).emit('game_state', {
-      roomId: room.id,
-      playersState: summarizePlayers(room),
-      timeLeft: 0
-    });
-    broadcastRoomList();
-  }
 });
 
-server.listen(PORT, () => {
-  console.log(`Grid Finder server running on http://localhost:${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log('Server running on', PORT));
