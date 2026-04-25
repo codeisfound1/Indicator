@@ -1,71 +1,101 @@
 <!doctype html>
-<html>
+<html lang="vi">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Grid Finder</title>
-  <link rel="stylesheet" href="/style.css" />
+  <title>Grid Finder - Multiplayer</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
-  <div id="app">
-    <header id="topbar">
-      <h1>Grid Finder</h1>
-      <div id="lobby-controls">
-        <button id="btn-new-room">Create Room</button>
-        <select id="level-select">
-          <option value="easy">Easy 5x5</option>
-          <option value="medium">Medium 7x7</option>
-          <option value="hard">Hard 10x10</option>
-          <option value="custom">Custom</option>
-        </select>
-        <input id="custom-n" type="number" min="10" max="30" value="10" style="width:70px; display:none" />
-      </div>
+  <div id="root">
+    <header class="topbar">
+      <div class="brand">GRID FINDER</div>
+      <div id="playerInfo" class="player-info"></div>
     </header>
 
-    <main id="main">
-      <section id="lobby">
-        <h2>Lobby</h2>
-        <div id="rooms"></div>
-      </section>
+    <main class="main">
+      <section id="screens">
 
-      <section id="room-panel" class="hidden">
-        <div id="room-header">
-          <div id="room-info"></div>
-          <div id="room-actions">
-            <button id="btn-start" class="hidden">Start Game</button>
-            <button id="btn-leave">Leave</button>
+        <div id="screen-welcome" class="screen active">
+          <h1>Grid Finder</h1>
+          <input id="inputName" placeholder="Tên (tùy chọn)" maxlength="15"/>
+          <div class="row">
+            <button id="btnSingle" class="btn">Chơi Single</button>
+            <button id="btnLobby" class="btn secondary">Multiplayer</button>
           </div>
         </div>
 
-        <div id="room-body">
-          <aside id="sidebar">
-            <div id="players-list"></div>
-            <div id="chat">
-              <div id="chat-messages"></div>
-              <form id="chat-form">
-                <input id="chat-input" autocomplete="off" placeholder="Message..." />
-                <button type="submit">Send</button>
-              </form>
+        <div id="screen-single" class="screen">
+          <h2>Chọn cấp độ</h2>
+          <div class="modes">
+            <button class="mode" data-level="easy">Dễ<br/>5x5</button>
+            <button class="mode" data-level="medium">Trung bình<br/>7x7</button>
+            <button class="mode" data-level="hard">Khó<br/>10x10</button>
+            <div class="mode custom">
+              <label>Siêu khó n x n (n ≥ 10)</label>
+              <input id="customN" type="number" min="10" value="12"/>
+              <button id="startCustom" class="btn">Bắt đầu</button>
             </div>
-            <div id="settings">
-              <label><input type="checkbox" id="high-contrast" /> High Contrast</label>
-            </div>
-          </aside>
-
-          <section id="game-area">
-            <div id="hud">
-              <div id="target-number">1</div>
-              <div id="timer">10:00</div>
-              <div id="best-times"></div>
-            </div>
-            <div id="grids-container"></div>
-          </section>
+          </div>
+          <button class="btn back">Quay lại</button>
         </div>
+
+        <div id="screen-lobby" class="screen">
+          <h2>Lobby</h2>
+          <div class="lobby-actions">
+            <select id="selectLevelLobby">
+              <option value="easy">Dễ</option>
+              <option value="medium">Trung bình</option>
+              <option value="hard">Khó</option>
+              <option value="custom">Siêu khó</option>
+            </select>
+            <input id="lobbyCustomN" type="number" min="10" placeholder="n (n≥10)" style="width:110px"/>
+            <button id="btnCreateRoom" class="btn">Tạo phòng</button>
+            <button id="btnRefreshRooms" class="btn secondary">Làm mới</button>
+          </div>
+
+          <div id="roomsList" class="rooms"></div>
+          <div class="back-row"><button class="btn back">Quay lại</button></div>
+        </div>
+
+        <div id="screen-room" class="screen">
+          <h2 id="roomTitle">Phòng</h2>
+          <div class="room-top">
+            <div id="roomPlayers" class="room-players"></div>
+            <div class="room-controls">
+              <button id="btnStartGame" class="btn">Bắt đầu</button>
+              <button id="btnLeaveRoom" class="btn secondary">Rời phòng</button>
+            </div>
+          </div>
+
+          <div class="game-area">
+            <div class="left-panel">
+              <div class="hud">
+                <div>Need: <span id="needNumber" class="needNumber">1</span></div>
+                <div>Countdown: <span id="countdown">600</span>s</div>
+                <div>Time: <span id="timeElapsed">0</span>s</div>
+                <div>Best: <span id="bestTime">-</span>s</div>
+              </div>
+              <div class="chat">
+                <div id="chatBox" class="chatBox"></div>
+                <div class="chatInput">
+                  <input id="chatMsg" placeholder="Gõ tin nhắn..." />
+                  <button id="btnSendMsg" class="btn small">Gửi</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="grids-area" id="gridsArea"></div>
+          </div>
+        </div>
+
       </section>
     </main>
+
+    <footer class="footer">© Grid Finder</footer>
   </div>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
