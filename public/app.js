@@ -66,12 +66,12 @@ function randomHSL(used) {
 
 // Compute optimal cell size for the available container width
 function computeCellSize(gridSize, containerWidth) {
-  const maxFromContainer = Math.floor((containerWidth - 20) / gridSize) - 4;
-  // Device-aware clamping
+  const maxFromContainer = Math.floor((containerWidth - 20) / gridSize) - 3;
+  // Device-aware clamping — increase min and max sizes
   const isMobile = window.innerWidth <= 640;
   const isTablet = window.innerWidth <= 1024;
-  const maxCellSize = isMobile ? 42 : isTablet ? 50 : 58;
-  const minCellSize = isMobile ? 22 : 26;
+  const maxCellSize = isMobile ? 56 : isTablet ? 64 : 72;
+  const minCellSize = isMobile ? 32 : 40;
   return Math.max(minCellSize, Math.min(maxCellSize, maxFromContainer));
 }
 
@@ -103,7 +103,7 @@ function buildGrid(panel, playerData, isMe, showHint) {
   svg.style.cursor = isMe && !completed ? 'pointer' : 'default';
   svg.style.maxWidth = '100%';
 
-  const fontSize = Math.max(9, Math.floor(cellSize * 0.38));
+  const fontSize = Math.max(12, Math.floor(cellSize * 0.42));
 
   grid.forEach((num, idx) => {
     const col  = idx % gridSize;
@@ -123,12 +123,12 @@ function buildGrid(panel, playerData, isMe, showHint) {
     rect.setAttribute('y', y);
     rect.setAttribute('width',  cellSize);
     rect.setAttribute('height', cellSize);
-    rect.setAttribute('rx', Math.max(3, cellSize * 0.12));
+    rect.setAttribute('rx', Math.max(4, cellSize * 0.16));
     rect.setAttribute('fill', done ? '#1c2538' : colors[idx]);
     rect.setAttribute('stroke', showHintForThis ? '#fff' : 'rgba(0,0,0,.25)');
-    rect.setAttribute('stroke-width', showHintForThis ? '2.5' : '1');
+    rect.setAttribute('stroke-width', showHintForThis ? '3.5' : '1.5');
     if (showHintForThis && isMe && !completed) {
-      rect.style.filter = 'drop-shadow(0 0 6px rgba(255,255,255,.7))';
+      rect.style.filter = 'drop-shadow(0 0 10px rgba(255,255,255,.9)) drop-shadow(0 0 20px rgba(0,229,255,.6))';
     }
     g.appendChild(rect);
 
@@ -152,7 +152,7 @@ function buildGrid(panel, playerData, isMe, showHint) {
       const ck = document.createElementNS(ns, 'text');
       ck.setAttribute('x', x + cellSize - 5);
       ck.setAttribute('y', y + 5);
-      ck.setAttribute('font-size', Math.max(6, fontSize * .55));
+      ck.setAttribute('font-size', Math.max(8, fontSize * .62));
       ck.setAttribute('fill', '#22c55e');
       ck.setAttribute('text-anchor', 'end');
       ck.setAttribute('dominant-baseline', 'hanging');
@@ -392,7 +392,6 @@ socket.on('left_room', () => {
   socket.emit('get_lobby');
 });
 
-
 socket.on('room_state', (state) => {
   const oldCurrent = roomState?.players.find(p => p.id === myId)?.current;
   renderRoom(state);
@@ -400,13 +399,14 @@ socket.on('room_state', (state) => {
   
   // If current increased (player found correct number), start 10s delay for THIS number
   if (newCurrent > oldCurrent && oldCurrent != null) {
-  clearTimeout(targetDelay);
-  targetDelay = true;  // ← Bắt đầu delay
-  setTimeout(() => {
-    targetDelay = false;  // ← Sau 10s, set = false để show hint
-    if (roomState) renderRoom(roomState);
-  }, 10000);
-}
+    clearTimeout(targetDelay);
+    targetDelay = true; // During 10s delay for this number
+    setTimeout(() => {
+      targetDelay = false; // After 10s, show hint for this number
+      // Re-render to show the hint highlight
+      if (roomState) renderRoom(roomState);
+    }, 10000);
+  }
 });
 
 socket.on('countdown', updateCountdown);
